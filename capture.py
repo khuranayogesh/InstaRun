@@ -6873,7 +6873,7 @@ class EditTestCaseDialog(QDialog):
                         action_type = field.get('action_type', 'Input')
                         value = str(field.get('value', '')).strip()
                         
-                        if action_type == 'Validate':  # ✅ CHANGED: Allow empty value for validation
+                        if action_type == 'Validate' and value:
                             if module_name in self.modules:
                                 module_data = self.modules[module_name]
                                 labels = module_data.get('labels', [])
@@ -6884,30 +6884,16 @@ class EditTestCaseDialog(QDialog):
                                     if label_name == field_name:
                                         row = int(label.get('row', 1))
                                         col = int(label.get('column', 1))
-                                        length = int(label.get('length', len(value) if value else 10))
+                                        length = int(label.get('length', len(value)))
                                         
                                         actual_value = autECLPS.GetText(row, col, length).strip()
                                         
-                                        # ✅ NEW: Handle {blank} validation
-                                        if value.lower() == '{blank}':
-                                            if actual_value != '':
-                                                QMessageBox.warning(self, "Validation Failed",
-                                                    f"Step {step_num}: Field '{field_name}'\n"
-                                                    f"Expected: (blank)\n"
-                                                    f"Actual: '{actual_value}'")
-                                                self.execution_stop_flag = True
-                                            else:
-                                                print(f"Step {step_num}: Field '{field_name}' is blank as expected ✓")
-                                        else:
-                                            # ✅ Normal validation
-                                            if actual_value != value:
-                                                QMessageBox.warning(self, "Validation Failed",
-                                                    f"Step {step_num}: Field '{field_name}'\n"
-                                                    f"Expected: '{value}'\n"
-                                                    f"Actual: '{actual_value}'")
-                                                self.execution_stop_flag = True
-                                            else:
-                                                print(f"Step {step_num}: Field '{field_name}' validated successfully ✓")
+                                        if actual_value != value:
+                                            QMessageBox.warning(self, "Validation Failed",
+                                                f"Step {step_num}: Field '{field_name}'\n"
+                                                f"Expected: '{value}'\n"
+                                                f"Actual: '{actual_value}'")
+                                            self.execution_stop_flag = True
                                         
                                         time.sleep(0.1)
                                         break
@@ -7135,37 +7121,23 @@ class EditTestCaseDialog(QDialog):
                                     action_type = field.get('action_type', 'Validate')
                                     value = str(field.get('value', '')).strip()
                                     
-                                    if action_type == 'Validate':  # ✅ CHANGED: Allow empty value for validation
+                                    if action_type == 'Validate' and value:
                                         field_name = field.get('field_name')
                                         for label in labels:
                                             label_name = label.get('name') or label.get('label') or label.get('text', '')
                                             if label_name == field_name:
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
-                                                length = int(label.get('length', len(value) if value else 10))
+                                                length = int(label.get('length', len(value)))
                                                 
                                                 actual_value = autECLPS.GetText(row, col, length).strip()
                                                 
-                                                # ✅ NEW: Handle {blank} validation
-                                                if value.lower() == '{blank}':
-                                                    if actual_value != '':
-                                                        QMessageBox.warning(self, "Validation Failed",
-                                                            f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
-                                                            f"Expected: (blank)\n"
-                                                            f"Actual: '{actual_value}'")
-                                                        self.execution_stop_flag = True
-                                                    else:
-                                                        print(f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}' is blank as expected ✓")
-                                                else:
-                                                    # ✅ Normal validation
-                                                    if actual_value != value:
-                                                        QMessageBox.warning(self, "Validation Failed",
-                                                            f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
-                                                            f"Expected: '{value}'\n"
-                                                            f"Actual: '{actual_value}'")
-                                                        self.execution_stop_flag = True
-                                                    else:
-                                                        print(f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}' validated successfully ✓")
+                                                if actual_value != value:
+                                                    QMessageBox.warning(self, "Validation Failed",
+                                                        f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
+                                                        f"Expected: '{value}'\n"
+                                                        f"Actual: '{actual_value}'")
+                                                    self.execution_stop_flag = True
                                                 
                                                 time.sleep(0.1)
                                                 break
