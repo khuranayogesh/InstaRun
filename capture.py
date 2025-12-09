@@ -6805,8 +6805,14 @@ class EditTestCaseDialog(QDialog):
             autECLPS = autECLSession.autECLPS
             
             # ✅ NEW: Execute main steps from start to end
-            for step_idx in range(start_main_step, end_main_step):
+            # ✅ CHANGED: Use while loop to handle dynamic step list updates
+            step_idx = start_main_step
+            while step_idx < len(self.added_steps):  # ✅ Check against current length
                 if self.execution_stop_flag:
+                    break
+                
+                # ✅ Check if we've reached the end step
+                if step_idx >= end_main_step:
                     break
                 
                 QApplication.processEvents()
@@ -6912,17 +6918,132 @@ class EditTestCaseDialog(QDialog):
                             break
                         time.sleep(0.1)
                         QApplication.processEvents()
-                
+                                
                 elif step_type == 'random_input':
                     row = int(step.get('row', 1))
                     col = int(step.get('column', 1))
                     value = str(step.get('value', '')).strip()
+                    is_special_key = step.get('is_special_key', False)  # ✅ CHANGED from end_key
                     
                     if value:
+                        print(f"Step {step_num}: Random Input at ({row}, {col})")
+                        
+                        # Capture screen before action
+                        before_screen = wait_for_pcomm_ready_smart(autECLPS, "Random Input")
+                        
+                        # Set cursor position
                         autECLPS.SetCursorPos(row, col)
-                        autECLPS.SendKeys(value)
-                        time.sleep(0.2)
-                
+                        
+                        # ✅ Check if it's a special key
+                        if is_special_key:
+                            key_mapping = {
+                                "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                                "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                                "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                                "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                            }
+                            pcomm_key = key_mapping.get(value, value)
+                            autECLPS.SendKeys(pcomm_key)
+                            print(f"Step {step_num}: Sent special key '{value}' -> '{pcomm_key}'")
+                        else:
+                            # Regular text input
+                            autECLPS.SendKeys(value)
+                            print(f"Step {step_num}: Sent text '{value}'")
+                        
+                        # Wait for screen change
+                        complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")
+        
+                elif step_type == 'break':
+                    message = step.get('message', '')
+                    print(f"Step {step_num}: Break point reached")
+                    
+                    # Show break dialog
+                    break_dialog = BreakExecutionDialog(message, self)
+                    break_dialog.show()
+                    
+                    # Wait for user action
+                    while break_dialog.result_action is None:
+                        QApplication.processEvents()
+                        time.sleep(0.1)
+                    
+                    action = break_dialog.result_action
+                    
+                    if action == BreakExecutionDialog.STOP:
+                        print("User chose to stop execution at break point")
+                        self.execution_stop_flag = True
+                        break_dialog.close()
+                        break
+                    
+                    elif action == BreakExecutionDialog.EDIT:
+                        print("User chose to edit test case at break point")
+                        break_dialog.result_action = None
+                        
+                        # Get current test case data
+                        existing_steps = self.added_steps
+                        test_case_description = self.test_case_description_input.text()
+                        test_case_assumptions = self.test_case_assumptions_input.toHtml()
+                        
+                        # Open edit dialog
+                        edit_dialog = EditTestCaseDialog(
+                            existing_steps,
+                            self.modules,
+                            self.main_window,
+                            self.test_case_name_input.text(),
+                            test_case_description,
+                            test_case_assumptions
+                        )
+                        
+                        edit_dialog.setParent(break_dialog, edit_dialog.windowFlags())
+                        edit_dialog.exec()
+                        
+                        # Get updated data
+                        updated_steps = edit_dialog.get_updated_steps()
+                        updated_description = edit_dialog.get_test_case_description()
+                        updated_assumptions = edit_dialog.get_test_case_assumptions()
+                        
+                        # ✅ Update the current test case data
+                        self.added_steps = updated_steps
+                        self.test_case_description_input.setText(updated_description)
+                        self.test_case_assumptions_input.setHtml(updated_assumptions)
+                        
+                        # ✅ CRITICAL: Update end_main_step to reflect new step count
+                        if end_step_data == -1:
+                            end_main_step = len(self.added_steps)
+                        
+                        print(f"Test case updated during execution. Total steps: {len(self.added_steps)}")
+                        
+                        QMessageBox.information(
+                            break_dialog,
+                            "Test Case Updated",
+                            f"Test case has been updated.\nTotal steps: {len(self.added_steps)}\n"
+                            f"Press 'Resume Execution' to continue from Step {step_num}."
+                        )
+                        
+                        break_dialog.raise_()
+                        break_dialog.activateWindow()
+                        
+                        # Wait for next action
+                        while break_dialog.result_action is None:
+                            QApplication.processEvents()
+                            time.sleep(0.1)
+                        
+                        action = break_dialog.result_action
+                        
+                        if action == BreakExecutionDialog.STOP:
+                            self.execution_stop_flag = True
+                            break_dialog.close()
+                            break
+                        elif action == BreakExecutionDialog.RESUME:
+                            break_dialog.close()
+                            # ✅ Continue execution from current step
+                    
+                    elif action == BreakExecutionDialog.RESUME:
+                        print("User chose to resume execution")
+                        break_dialog.close()
+        
+                time.sleep(0.1)
+                step_idx += 1
+        
                 # ✅ NEW: Execute utility steps with range control
                 if execute_utilities:
                     utility_steps = step.get('utility_steps', [])
@@ -7021,6 +7142,39 @@ class EditTestCaseDialog(QDialog):
                                                 time.sleep(0.1)
                                                 break
                         
+                        elif utility_type == 'random_input':
+                            row = int(utility_step.get('row', 1))
+                            col = int(utility_step.get('column', 1))
+                            value = str(utility_step.get('value', '')).strip()
+                            is_special_key = utility_step.get('is_special_key', False)  # ✅ CHANGED
+                            
+                            if value:
+                                print(f"  Utility Step {step_num}.{utility_idx + 1}: Random Input at ({row}, {col})")
+                                
+                                # Capture screen before action
+                                before_screen = wait_for_pcomm_ready_smart(autECLPS, "Random Input")
+                                
+                                # Set cursor position
+                                autECLPS.SetCursorPos(row, col)
+                                
+                                # ✅ Check if it's a special key
+                                if is_special_key:
+                                    key_mapping = {
+                                        "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                                        "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                                        "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                                        "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                                    }
+                                    pcomm_key = key_mapping.get(value, value)
+                                    autECLPS.SendKeys(pcomm_key)
+                                    print(f"  Utility Step {step_num}.{utility_idx + 1}: Sent special key '{value}' -> '{pcomm_key}'")
+                                else:
+                                    # Regular text input
+                                    autECLPS.SendKeys(value)
+                                    print(f"  Utility Step {step_num}.{utility_idx + 1}: Sent text '{value}'")
+                                
+                                # Wait for screen change
+                                complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")                        
                         time.sleep(0.1)
                 
                 time.sleep(0.1)
