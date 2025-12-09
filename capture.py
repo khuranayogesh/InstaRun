@@ -3019,6 +3019,31 @@ class TestExecutionDialog(QDialog):
                             full_capture_string = header + "\n" + "\n".join(captured_text_lines)
                             text_captures.append(full_capture_string)
                             print(f"Step {step_index}.{sub_index}: Utility screen text captured successfully")
+
+                        elif utility_type == "random_input":
+                            row = int(utility_step.get('row', 1))
+                            col = int(utility_step.get('column', 1))
+                            value = str(utility_step.get('value', '')).strip()
+                            is_special_key = utility_step.get('is_special_key', False)
+                            
+                            if value:
+                                autECLPS.SetCursorPos(row, col)
+                                
+                                if is_special_key:
+                                    key_mapping = {
+                                        "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                                        "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                                        "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                                        "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                                    }
+                                    pcomm_key = key_mapping.get(value, value)
+                                    autECLPS.SendKeys(pcomm_key)
+                                    print(f"Step {step_index}.{sub_index}: Sent special key '{value}' to position ({row}, {col})")
+                                    time.sleep(1.0)
+                                else:
+                                    substituted_value = self.substitute_execution_variables(value, test_case_name)
+                                    autECLPS.SendKeys(substituted_value)
+                                    print(f"Step {step_index}.{sub_index}: Sent '{substituted_value}' to position ({row}, {col})")
                             
                         elif utility_type == "module_import":
                             # ✅ FIXED: Handle module import utility step (for both Input and Validation)
@@ -4038,6 +4063,31 @@ class TestExecutionDialog(QDialog):
                                 full_capture_string = header + "\n" + "\n".join(captured_text_lines)
                                 text_captures.append(full_capture_string)
                                 print(f"Step {step_index}.{sub_index}: Utility screen text captured successfully")
+                            
+                            elif utility_type == "random_input":
+                                row = int(utility_step.get('row', 1))
+                                col = int(utility_step.get('column', 1))
+                                value = str(utility_step.get('value', '')).strip()
+                                is_special_key = utility_step.get('is_special_key', False)
+                                
+                                if value:
+                                    autECLPS.SetCursorPos(row, col)
+                                    
+                                    if is_special_key:
+                                        key_mapping = {
+                                            "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                                            "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                                            "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                                            "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                                        }
+                                        pcomm_key = key_mapping.get(value, value)
+                                        autECLPS.SendKeys(pcomm_key)
+                                        print(f"Step {step_index}.{sub_index}: Sent special key '{value}' to position ({row}, {col})")
+                                        time.sleep(1.0)
+                                    else:
+                                        substituted_value = self.substitute_execution_variables(value, test_case_name)
+                                        autECLPS.SendKeys(substituted_value)
+                                        print(f"Step {step_index}.{sub_index}: Sent '{substituted_value}' to position ({row}, {col})")                            
                             
                             elif utility_type == "module_import":
                                 # âœ… FIXED: Handle module import utility step (for both Input and Validation)
@@ -5709,7 +5759,7 @@ class EditTestCaseDialog(QDialog):
             self.add_utility_step_button.show()
         else:
             # For other utility step types, always show the button
-            utility_step_types = ["Special Keys", "Capture Screenshot", "Capture Text Screenshot", "Wait"]
+            utility_step_types = ["Special Keys", "Capture Screenshot", "Capture Text Screenshot", "Random Input","Wait"]
             if selected_type in utility_step_types:
                 self.add_utility_step_button.show()
             else:
@@ -7621,6 +7671,51 @@ class EditTestCaseDialog(QDialog):
                 "type": "capture_screen_text",
                 "fields": []
             }
+        
+        elif selected_type == "Random Input":
+            row_text = self.random_input_row.text().strip()
+            col_text = self.random_input_col.text().strip()
+            value_text = self.random_input_value.text().strip()
+            special_key = self.random_input_special_key_combo.currentText()
+            
+            if not row_text or not col_text:
+                QMessageBox.warning(self, "Missing Information", "Please provide Row and Column.")
+                return
+            
+            if not value_text and special_key == "(Text)":
+                QMessageBox.warning(self, "Missing Information", "Please provide either a Value or select a Special Key.")
+                return
+            
+            try:
+                row = int(row_text)
+                col = int(col_text)
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Row and Column must be valid numbers.")
+                return
+            
+            if special_key != "(Text)":
+                display_value = f"[{special_key}]"
+                actual_value = special_key
+                is_special_key = True
+            else:
+                display_value = value_text
+                actual_value = value_text
+                is_special_key = False
+            
+            utility_step = {
+                "name": f"Random Input: Row {row}, Col {col}, Value: {display_value}",
+                "type": "random_input",
+                "row": row,
+                "column": col,
+                "value": actual_value,
+                "is_special_key": is_special_key
+            }
+            
+            # Clear inputs
+            self.random_input_row.clear()
+            self.random_input_col.clear()
+            self.random_input_value.clear()
+            self.random_input_special_key_combo.setCurrentIndex(0)        
         
         elif selected_type == "Import Module":
             # ✅ CRITICAL FIX: Capture the action type BEFORE any other operations
