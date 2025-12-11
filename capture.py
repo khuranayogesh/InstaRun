@@ -1610,6 +1610,29 @@ class TestExecutionDialog(QDialog):
         self.setup_ui()
         self.load_execution_data()
 
+    def validate_field_value(self, actual_value, expected_value):
+        """
+        Validates a field value, with special handling for {blank} validation.
+        
+        Args:
+            actual_value: The actual value from PCOMM screen
+            expected_value: The expected value from test case (can be '{blank}')
+        
+        Returns:
+            bool: True if validation passes, False otherwise
+        """
+        # Strip both values for comparison
+        actual_stripped = actual_value.strip()
+        expected_stripped = expected_value.strip()
+        
+        # Special handling for {blank} validation
+        if expected_stripped.lower() == '{blank}':
+            # Check if actual value is empty/blank
+            return actual_stripped == '' or actual_stripped.isspace() or len(actual_stripped) == 0
+        
+        # Normal validation (existing behavior)
+        return actual_stripped == expected_stripped
+
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
 
@@ -2721,16 +2744,28 @@ class TestExecutionDialog(QDialog):
                                         row = int(label.get("row", 1))
                                         col = int(label.get("column", 1))
                                         length = int(label.get("length", len(value)))
+                                                                          
+                                        actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                         
-                                        actual_value = autECLPS.GetText(row, col, length).strip()
+                                        # ✅ NEW: Use validation helper function
+                                        validation_passed = self.validate_field_value(actual_value, value)
                                         
-                                        if actual_value != value:
-                                            validation_failures.append({
-                                                "step": step_index,
-                                                "field": field_name,
-                                                "expected": value,
-                                                "actual": actual_value
-                                            })
+                                        if not validation_passed:
+                                            # ✅ ENHANCED: Better error message for {blank} validation
+                                            if value.lower() == '{blank}':
+                                                validation_failures.append({
+                                                    "step": step_index,
+                                                    "field": field_name,
+                                                    "expected": '<blank>',
+                                                    "actual": f"'{actual_value.strip()}'" if actual_value.strip() else '<blank>'
+                                                })
+                                            else:
+                                                validation_failures.append({
+                                                    "step": step_index,
+                                                    "field": field_name,
+                                                    "expected": value,
+                                                    "actual": actual_value.strip()
+                                                })
                                             # Stop execution immediately on validation failure
                                             print(f"❌ Validation failed at Step {step_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
                                             break
@@ -3100,18 +3135,30 @@ class TestExecutionDialog(QDialog):
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
                                                 length = int(label.get('length', len(value)))
+
                                                 
                                                 # Read actual value from screen
-                                                actual_value = autECLPS.GetText(row, col, length).strip()
+                                                actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                                 
-                                                # Compare with expected value
-                                                if actual_value != value:
-                                                    validation_failures.append({
-                                                        "step": f"{step_index}.{sub_index}",
-                                                        "field": field_name,
-                                                        "expected": value,
-                                                        "actual": actual_value
-                                                    })
+                                                # ✅ NEW: Use validation helper function
+                                                validation_passed = self.validate_field_value(actual_value, value)
+                                                
+                                                if not validation_passed:
+                                                    # ✅ ENHANCED: Better error message for {blank} validation
+                                                    if value.lower() == '{blank}':
+                                                        validation_failures.append({
+                                                            "step": f"{step_index}.{sub_index}",
+                                                            "field": field_name,
+                                                            "expected": '<blank>',
+                                                            "actual": f"'{actual_value.strip()}'" if actual_value.strip() else '<blank>'
+                                                        })
+                                                    else:
+                                                        validation_failures.append({
+                                                            "step": f"{step_index}.{sub_index}",
+                                                            "field": field_name,
+                                                            "expected": value,
+                                                            "actual": actual_value.strip()
+                                                        })
                                                     # ✅ Stop execution immediately on validation failure
                                                     print(f"❌ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
                                                     break
@@ -3661,16 +3708,28 @@ class TestExecutionDialog(QDialog):
                                             row = int(label.get("row", 1))
                                             col = int(label.get("column", 1))
                                             length = int(label.get("length", len(value)))
+
+                                            actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                             
-                                            actual_value = autECLPS.GetText(row, col, length).strip()
+                                            # ✅ NEW: Use validation helper function
+                                            validation_passed = self.validate_field_value(actual_value, value)
                                             
-                                            if actual_value != value:
-                                                validation_failures.append({
-                                                    "step": step_index,
-                                                    "field": field_name,
-                                                    "expected": value,
-                                                    "actual": actual_value
-                                                })
+                                            if not validation_passed:
+                                                # ✅ ENHANCED: Better error message for {blank} validation
+                                                if value.lower() == '{blank}':
+                                                    validation_failures.append({
+                                                        "step": step_index,
+                                                        "field": field_name,
+                                                        "expected": '<blank>',
+                                                        "actual": f"'{actual_value.strip()}'" if actual_value.strip() else '<blank>'
+                                                    })
+                                                else:
+                                                    validation_failures.append({
+                                                        "step": step_index,
+                                                        "field": field_name,
+                                                        "expected": value,
+                                                        "actual": actual_value.strip()
+                                                    })
                                                 # Stop execution immediately on validation failure
                                                 print(f"❌ Validation failed at Step {step_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
                                                 break
@@ -4144,18 +4203,29 @@ class TestExecutionDialog(QDialog):
                                                     row = int(label.get('row', 1))
                                                     col = int(label.get('column', 1))
                                                     length = int(label.get('length', len(value)))
-                                                    
+
                                                     # Read actual value from screen
-                                                    actual_value = autECLPS.GetText(row, col, length).strip()
+                                                    actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                                     
-                                                    # Compare with expected value
-                                                    if actual_value != value:
-                                                        validation_failures.append({
-                                                            "step": f"{step_index}.{sub_index}",
-                                                            "field": field_name,
-                                                            "expected": value,
-                                                            "actual": actual_value
-                                                        })
+                                                    # ✅ NEW: Use validation helper function
+                                                    validation_passed = self.validate_field_value(actual_value, value)
+                                                    
+                                                    if not validation_passed:
+                                                        # ✅ ENHANCED: Better error message for {blank} validation
+                                                        if value.lower() == '{blank}':
+                                                            validation_failures.append({
+                                                                "step": f"{step_index}.{sub_index}",
+                                                                "field": field_name,
+                                                                "expected": '<blank>',
+                                                                "actual": f"'{actual_value.strip()}'" if actual_value.strip() else '<blank>'
+                                                            })
+                                                        else:
+                                                            validation_failures.append({
+                                                                "step": f"{step_index}.{sub_index}",
+                                                                "field": field_name,
+                                                                "expected": value,
+                                                                "actual": actual_value.strip()
+                                                            })
                                                         # âœ… Stop execution immediately on validation failure
                                                         print(f"âŒ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
                                                         break
@@ -5503,6 +5573,18 @@ class EditTestCaseDialog(QDialog):
             existing_prereqs = self.main_window.test_cases[test_case_name].get('prerequisites', [])
             for prereq in existing_prereqs:
                 self.add_prerequisite_chip(prereq)
+
+    def validate_field_value(self, actual_value, expected_value):
+        """
+        Validates a field value, with special handling for {blank} validation.
+        """
+        actual_stripped = actual_value.strip()
+        expected_stripped = expected_value.strip()
+        
+        if expected_stripped.lower() == '{blank}':
+            return actual_stripped == '' or actual_stripped.isspace() or len(actual_stripped) == 0
+        
+        return actual_stripped == expected_stripped
 
     def on_main_step_clicked(self, item):
         """When a main step is clicked, populate utility steps list with numbered sub-steps."""
@@ -6885,15 +6967,25 @@ class EditTestCaseDialog(QDialog):
                                         row = int(label.get('row', 1))
                                         col = int(label.get('column', 1))
                                         length = int(label.get('length', len(value)))
+
+                                        actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                         
-                                        actual_value = autECLPS.GetText(row, col, length).strip()
+                                        # ✅ NEW: Use validation helper function
+                                        validation_passed = self.validate_field_value(actual_value, value)
                                         
-                                        if actual_value != value:
-                                            QMessageBox.warning(self, "Validation Failed",
-                                                f"Step {step_num}: Field '{field_name}'\n"
-                                                f"Expected: '{value}'\n"
-                                                f"Actual: '{actual_value}'")
-                                            self.execution_stop_flag = True
+                                        if not validation_passed:
+                                            # ✅ ENHANCED: Better error message for {blank} validation
+                                            if value.lower() == '{blank}':
+                                                QMessageBox.warning(self, "Validation Failed",
+                                                    f"Step {step_num}: Field '{field_name}'\n"
+                                                    f"Expected: <blank>\n"
+                                                    f"Actual: '{actual_value.strip()}' (not blank)")
+                                            else:
+                                                QMessageBox.warning(self, "Validation Failed",
+                                                    f"Step {step_num}: Field '{field_name}'\n"
+                                                    f"Expected: '{value}'\n"
+                                                    f"Actual: '{actual_value.strip()}'")
+                                                self.execution_stop_flag = True
                                         
                                         time.sleep(0.1)
                                         break
@@ -7129,15 +7221,25 @@ class EditTestCaseDialog(QDialog):
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
                                                 length = int(label.get('length', len(value)))
+
+                                                actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                                 
-                                                actual_value = autECLPS.GetText(row, col, length).strip()
+                                                # ✅ NEW: Use validation helper function
+                                                validation_passed = self.validate_field_value(actual_value, value)
                                                 
-                                                if actual_value != value:
-                                                    QMessageBox.warning(self, "Validation Failed",
-                                                        f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
-                                                        f"Expected: '{value}'\n"
-                                                        f"Actual: '{actual_value}'")
-                                                    self.execution_stop_flag = True
+                                                if not validation_passed:
+                                                    # ✅ ENHANCED: Better error message for {blank} validation
+                                                    if value.lower() == '{blank}':
+                                                        QMessageBox.warning(self, "Validation Failed",
+                                                            f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
+                                                            f"Expected: <blank>\n"
+                                                            f"Actual: '{actual_value.strip()}' (not blank)")
+                                                    else:
+                                                        QMessageBox.warning(self, "Validation Failed",
+                                                            f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
+                                                            f"Expected: '{value}'\n"
+                                                            f"Actual: '{actual_value.strip()}'")
+                                                        self.execution_stop_flag = True
                                                 
                                                 time.sleep(0.1)
                                                 break
