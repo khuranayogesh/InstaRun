@@ -5112,10 +5112,21 @@ class EditTestCaseDialog(QDialog):
     # Class variable to store copied steps across all instances
     copied_steps = []
     
-    def __init__(self, existing_steps, modules, parent=None, test_case_name="", test_case_description="", test_case_assumptions=""):
-        super().__init__(parent)
-        self.setWindowTitle("Edit Test Case")
-        self.setMinimumSize(1200, 750)
+    def __init__(self, existing_steps, modules, parent, test_case_name="", test_case_description="", test_case_assumptions=""):
+        super().__init__(parent)  # Pass parent to QDialog
+        
+        self.main_window = parent  # ✅ Now this works correctly
+        
+        self.setWindowTitle(f"Edit Test Case: {test_case_name}" if test_case_name else "Edit Test Case")
+        
+        # ✅ Make it resizable and maximizable
+        self.setMinimumSize(800, 900)
+        self.setWindowFlags(
+            self.windowFlags() | 
+            Qt.WindowType.WindowMaximizeButtonHint |
+            Qt.WindowType.WindowMinimizeButtonHint &
+            ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         self.modules = modules
         self.added_steps = existing_steps
@@ -5374,7 +5385,16 @@ class EditTestCaseDialog(QDialog):
         main_steps_widget = QWidget()
         main_steps_layout = QVBoxLayout(main_steps_widget)
         main_steps_layout.setContentsMargins(0, 0, 0, 0)
-        left_label = QLabel("Added Test Steps:")
+        
+        # ✅ CHANGE 1: Rename the label
+        left_label = QLabel("Main Test Steps:")  # ✅ Changed from "Added Test Steps:"
+        
+        # ✅ CHANGE 2: Add styling to make it visible and bold
+        left_label.setStyleSheet("font-weight: bold; font-size: 11pt; color: #6B2C91;")
+        
+        # ✅ CHANGE 3: ADD THE LABEL TO THE LAYOUT (this was missing!)
+        main_steps_layout.addWidget(left_label)
+        
         self.steps_list_widget = CustomStepsListWidget(self)  # ✅ Use custom widget
         self.steps_list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.steps_list_widget.setSelectionBehavior(QListWidget.SelectionBehavior.SelectRows)
@@ -5392,6 +5412,7 @@ class EditTestCaseDialog(QDialog):
         # Header with label and dynamic buttons
         utility_header_layout = QHBoxLayout()
         utility_label = QLabel("Utility Steps:")
+        utility_label.setStyleSheet("font-weight: bold; font-size: 11pt; color: #6B2C91;")  # ✅ Added styling
         utility_header_layout.addWidget(utility_label)
 
         # Dynamic buttons for quick add (initially hidden)
@@ -5497,7 +5518,10 @@ class EditTestCaseDialog(QDialog):
         lists_splitter.addWidget(utility_steps_widget)
 
         # Set initial splitter sizes (50/50 split)
-        lists_splitter.setSizes([300, 300])
+        #lists_splitter.setSizes([300, 300])
+        
+        lists_splitter.setStretchFactor(0, 50)  # Main Test Steps gets 60%
+        lists_splitter.setStretchFactor(1, 50)  # Utility Steps gets 40%
 
         left_main_layout.addWidget(lists_splitter)
         
@@ -5537,7 +5561,7 @@ class EditTestCaseDialog(QDialog):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_label = QLabel("Module Details:")
-        
+        right_label.setStyleSheet("font-weight: bold; font-size: 11pt; color: #6B2C91;")  # ✅ Added styling
         self.details_table = QTableWidget()
         self.details_table.setColumnCount(2)
         self.details_table.setHorizontalHeaderLabels(["Field Name", "Value"])
@@ -5553,7 +5577,9 @@ class EditTestCaseDialog(QDialog):
         right_layout.addWidget(save_button)
         
         splitter.addWidget(right_widget)
-        splitter.setSizes([200, 600])
+        #splitter.setSizes([200, 600])
+        splitter.setStretchFactor(0, 45)  # Left side (Main + Utility) gets 55%
+        splitter.setStretchFactor(1, 55)  # Module Details gets 45%
 
         # Dialog buttons
         close_button_layout = QHBoxLayout()
@@ -6903,13 +6929,15 @@ class EditTestCaseDialog(QDialog):
                 step_type = step.get('type')
                 step_num = step_idx + 1
                 
-                # ✅ NEW: Determine which utility steps to execute
+                # ✅ FIXED: Determine which utility steps to execute and whether to skip main step
                 execute_utilities = True
                 utility_start = 0
                 utility_end = -1
+                skip_main_step = False  # ✅ NEW flag
                 
-                if step_idx == start_main_step:
-                    # First step - start from specified utility
+                if step_idx == start_main_step and start_utility_step > 0:
+                    # Starting from a utility step - skip main step execution
+                    skip_main_step = True
                     utility_start = start_utility_step
                 
                 if step_idx == end_main_step - 1:
@@ -6918,203 +6946,144 @@ class EditTestCaseDialog(QDialog):
                 
                 print(f"Executing Step {step_num}: {step.get('name', 'Unknown')}")
                 
-                # Execute main step logic
-                if step_type == 'module_import':
-                    module_name = step.get('module_name')
-                    
-                    # Process input fields
-                    for field in step.get('fields', []):
-                        if self.execution_stop_flag:
-                            break
+                # ✅ FIXED: Only execute main step if not skipping
+                if not skip_main_step:
+                    # Execute main step logic
+                    if step_type == 'module_import':
+                        module_name = step.get('module_name')
                         
-                        action_type = field.get('action_type', 'Input')
-                        value = str(field.get('value', '')).strip()
+                        # Process input fields
+                        for field in step.get('fields', []):
+                            if self.execution_stop_flag:
+                                break
+                            
+                            action_type = field.get('action_type', 'Input')
+                            value = str(field.get('value', '')).strip()
+                            
+                            if action_type == 'Input' and value:
+                                if module_name in self.modules:
+                                    module_data = self.modules[module_name]
+                                    labels = module_data.get('labels', [])
+                                    
+                                    field_name = field.get('field_name')
+                                    for label in labels:
+                                        label_name = label.get('name') or label.get('label') or label.get('text', '')
+                                        if label_name == field_name:
+                                            row = int(label.get('row', 1))
+                                            col = int(label.get('column', 1))
+                                            
+                                            autECLPS.SetCursorPos(row, col)
+                                            autECLPS.SendKeys(value)
+                                            time.sleep(0.2)
+                                            break
                         
-                        if action_type == 'Input' and value:
-                            if module_name in self.modules:
-                                module_data = self.modules[module_name]
-                                labels = module_data.get('labels', [])
-                                
-                                field_name = field.get('field_name')
-                                for label in labels:
-                                    label_name = label.get('name') or label.get('label') or label.get('text', '')
-                                    if label_name == field_name:
-                                        row = int(label.get('row', 1))
-                                        col = int(label.get('column', 1))
-                                        
-                                        autECLPS.SetCursorPos(row, col)
-                                        autECLPS.SendKeys(value)
-                                        time.sleep(0.2)
-                                        break
-                    
-                    # Process validation fields
-                    for field in step.get('fields', []):
-                        if self.execution_stop_flag:
-                            break
-                        
-                        action_type = field.get('action_type', 'Input')
-                        value = str(field.get('value', '')).strip()
-                        
-                        if action_type == 'Validate' and value:
-                            if module_name in self.modules:
-                                module_data = self.modules[module_name]
-                                labels = module_data.get('labels', [])
-                                
-                                field_name = field.get('field_name')
-                                for label in labels:
-                                    label_name = label.get('name') or label.get('label') or label.get('text', '')
-                                    if label_name == field_name:
-                                        row = int(label.get('row', 1))
-                                        col = int(label.get('column', 1))
-                                        length = int(label.get('length', len(value)))
+                        # Process validation fields
+                        for field in step.get('fields', []):
+                            if self.execution_stop_flag:
+                                break
+                            
+                            action_type = field.get('action_type', 'Input')
+                            value = str(field.get('value', '')).strip()
+                            
+                            if action_type == 'Validate' and value:
+                                if module_name in self.modules:
+                                    module_data = self.modules[module_name]
+                                    labels = module_data.get('labels', [])
+                                    
+                                    field_name = field.get('field_name')
+                                    for label in labels:
+                                        label_name = label.get('name') or label.get('label') or label.get('text', '')
+                                        if label_name == field_name:
+                                            row = int(label.get('row', 1))
+                                            col = int(label.get('column', 1))
+                                            length = int(label.get('length', len(value)))
 
-                                        actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
-                                        
-                                        # ✅ NEW: Use validation helper function
-                                        validation_passed = self.validate_field_value(actual_value, value)
-                                        
-                                        if not validation_passed:
-                                            # ✅ ENHANCED: Better error message for {blank} validation
-                                            if value.lower() == '{blank}':
-                                                QMessageBox.warning(self, "Validation Failed",
-                                                    f"Step {step_num}: Field '{field_name}'\n"
-                                                    f"Expected: <blank>\n"
-                                                    f"Actual: '{actual_value.strip()}' (not blank)")
-                                            else:
-                                                QMessageBox.warning(self, "Validation Failed",
-                                                    f"Step {step_num}: Field '{field_name}'\n"
-                                                    f"Expected: '{value}'\n"
-                                                    f"Actual: '{actual_value.strip()}'")
+                                            actual_value = autECLPS.GetText(row, col, length)
+                                            
+                                            # ✅ NEW: Use validation helper function
+                                            validation_passed = self.validate_field_value(actual_value, value)
+                                            
+                                            if not validation_passed:
+                                                # ✅ ENHANCED: Better error message for {blank} validation
+                                                if value.lower() == '{blank}':
+                                                    QMessageBox.warning(self, "Validation Failed",
+                                                        f"Step {step_num}: Field '{field_name}'\n"
+                                                        f"Expected: <blank>\n"
+                                                        f"Actual: '{actual_value.strip()}' (not blank)")
+                                                else:
+                                                    QMessageBox.warning(self, "Validation Failed",
+                                                        f"Step {step_num}: Field '{field_name}'\n"
+                                                        f"Expected: '{value}'\n"
+                                                        f"Actual: '{actual_value.strip()}'")
                                                 self.execution_stop_flag = True
-                                        
-                                        time.sleep(0.1)
-                                        break
-                
-                elif step_type == 'special_key':
-                    key_value = step.get('key_value', '')
-                    key_mapping = {
-                        "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
-                        "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
-                        "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
-                        "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
-                    }
-                    pcomm_key = key_mapping.get(key_value, key_value)
-                    autECLPS.SendKeys(pcomm_key)
-                    time.sleep(2.0)
-                
-                elif step_type == 'wait':
-                    seconds = float(step.get('seconds', 1))
-                    print(f"Waiting {seconds} second(s)...")
-                    for _ in range(int(seconds * 10)):
-                        if self.execution_stop_flag:
-                            break
-                        time.sleep(0.1)
-                        QApplication.processEvents()
+                                            
+                                            time.sleep(0.1)
+                                            break
+                    
+                    elif step_type == 'special_key':
+                        key_value = step.get('key_value', '')
+                        key_mapping = {
+                            "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                            "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                            "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                            "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                        }
+                        pcomm_key = key_mapping.get(key_value, key_value)
+                        autECLPS.SendKeys(pcomm_key)
+                        time.sleep(2.0)
+                    
+                    elif step_type == 'wait':
+                        seconds = float(step.get('seconds', 1))
+                        print(f"Waiting {seconds} second(s)...")
+                        for _ in range(int(seconds * 10)):
+                            if self.execution_stop_flag:
+                                break
+                            time.sleep(0.1)
+                            QApplication.processEvents()
                                 
-                elif step_type == 'random_input':
-                    row = int(step.get('row', 1))
-                    col = int(step.get('column', 1))
-                    value = str(step.get('value', '')).strip()
-                    is_special_key = step.get('is_special_key', False)  # ✅ CHANGED from end_key
-                    
-                    if value:
-                        print(f"Step {step_num}: Random Input at ({row}, {col})")
+                    elif step_type == 'random_input':
+                        row = int(step.get('row', 1))
+                        col = int(step.get('column', 1))
+                        value = str(step.get('value', '')).strip()
+                        is_special_key = step.get('is_special_key', False)
                         
-                        # Capture screen before action
-                        before_screen = wait_for_pcomm_ready_smart(autECLPS, "Random Input")
-                        
-                        # Set cursor position
-                        autECLPS.SetCursorPos(row, col)
-                        
-                        # ✅ Check if it's a special key
-                        if is_special_key:
-                            key_mapping = {
-                                "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
-                                "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
-                                "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
-                                "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
-                            }
-                            pcomm_key = key_mapping.get(value, value)
-                            autECLPS.SendKeys(pcomm_key)
-                            print(f"Step {step_num}: Sent special key '{value}' -> '{pcomm_key}'")
-                        else:
-                            # Regular text input
-                            autECLPS.SendKeys(value)
-                            print(f"Step {step_num}: Sent text '{value}'")
-                        
-                        # Wait for screen change
-                        complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")
+                        if value:
+                            print(f"Step {step_num}: Random Input at ({row}, {col})")
+                            
+                            # Capture screen before action
+                            before_screen = wait_for_pcomm_ready_smart(autECLPS, "Random Input")
+                            
+                            # Set cursor position
+                            autECLPS.SetCursorPos(row, col)
+                            
+                            # ✅ Check if it's a special key
+                            if is_special_key:
+                                key_mapping = {
+                                    "Enter Key": "[enter]", "Clear Key": "[clear]", "End Key": "[EraseEof]",
+                                    "F1": "[pf1]", "F2": "[pf2]", "F3": "[pf3]", "F4": "[pf4]",
+                                    "F5": "[pf5]", "F6": "[pf6]", "F7": "[pf7]", "F8": "[pf8]",
+                                    "F9": "[pf9]", "F10": "[pf10]", "F11": "[pf11]", "F12": "[pf12]",
+                                }
+                                pcomm_key = key_mapping.get(value, value)
+                                autECLPS.SendKeys(pcomm_key)
+                                print(f"Step {step_num}: Sent special key '{value}' -> '{pcomm_key}'")
+                            else:
+                                # Regular text input
+                                autECLPS.SendKeys(value)
+                                print(f"Step {step_num}: Sent text '{value}'")
+                            
+                            # Wait for screen change
+                            complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")
         
-                elif step_type == 'break':
-                    message = step.get('message', '')
-                    print(f"Step {step_num}: Break point reached")
-                    
-                    # Show break dialog
-                    break_dialog = BreakExecutionDialog(message, self)
-                    break_dialog.show()
-                    
-                    # Wait for user action
-                    while break_dialog.result_action is None:
-                        QApplication.processEvents()
-                        time.sleep(0.1)
-                    
-                    action = break_dialog.result_action
-                    
-                    if action == BreakExecutionDialog.STOP:
-                        print("User chose to stop execution at break point")
-                        self.execution_stop_flag = True
-                        break_dialog.close()
-                        break
-                    
-                    elif action == BreakExecutionDialog.EDIT:
-                        print("User chose to edit test case at break point")
-                        break_dialog.result_action = None
+                    elif step_type == 'break':
+                        message = step.get('message', '')
+                        print(f"Step {step_num}: Break point reached")
                         
-                        # Get current test case data
-                        existing_steps = self.added_steps
-                        test_case_description = self.test_case_description_input.text()
-                        test_case_assumptions = self.test_case_assumptions_input.toHtml()
+                        # Show break dialog
+                        break_dialog = BreakExecutionDialog(message, self)
+                        break_dialog.show()
                         
-                        # Open edit dialog
-                        edit_dialog = EditTestCaseDialog(
-                            existing_steps,
-                            self.modules,
-                            self.main_window,
-                            self.test_case_name_input.text(),
-                            test_case_description,
-                            test_case_assumptions
-                        )
-                        
-                        edit_dialog.setParent(break_dialog, edit_dialog.windowFlags())
-                        edit_dialog.exec()
-                        
-                        # Get updated data
-                        updated_steps = edit_dialog.get_updated_steps()
-                        updated_description = edit_dialog.get_test_case_description()
-                        updated_assumptions = edit_dialog.get_test_case_assumptions()
-                        
-                        # ✅ Update the current test case data
-                        self.added_steps = updated_steps
-                        self.test_case_description_input.setText(updated_description)
-                        self.test_case_assumptions_input.setHtml(updated_assumptions)
-                        
-                        # ✅ CRITICAL: Update end_main_step to reflect new step count
-                        if end_step_data == -1:
-                            end_main_step = len(self.added_steps)
-                        
-                        print(f"Test case updated during execution. Total steps: {len(self.added_steps)}")
-                        
-                        QMessageBox.information(
-                            break_dialog,
-                            "Test Case Updated",
-                            f"Test case has been updated.\nTotal steps: {len(self.added_steps)}\n"
-                            f"Press 'Resume Execution' to continue from Step {step_num}."
-                        )
-                        
-                        break_dialog.raise_()
-                        break_dialog.activateWindow()
-                        
-                        # Wait for next action
+                        # Wait for user action
                         while break_dialog.result_action is None:
                             QApplication.processEvents()
                             time.sleep(0.1)
@@ -7122,29 +7091,91 @@ class EditTestCaseDialog(QDialog):
                         action = break_dialog.result_action
                         
                         if action == BreakExecutionDialog.STOP:
+                            print("User chose to stop execution at break point")
                             self.execution_stop_flag = True
                             break_dialog.close()
                             break
+                        
+                        elif action == BreakExecutionDialog.EDIT:
+                            print("User chose to edit test case at break point")
+                            break_dialog.result_action = None
+                            
+                            # Get current test case data
+                            existing_steps = self.added_steps
+                            test_case_description = self.test_case_description_input.text()
+                            test_case_assumptions = self.test_case_assumptions_input.toHtml()
+                            
+                            # Open edit dialog
+                            edit_dialog = EditTestCaseDialog(
+                                existing_steps,
+                                self.modules,
+                                self.main_window,
+                                self.test_case_name_input.text(),
+                                test_case_description,
+                                test_case_assumptions
+                            )
+                            
+                            edit_dialog.setParent(break_dialog, edit_dialog.windowFlags())
+                            edit_dialog.exec()
+                            
+                            # Get updated data
+                            updated_steps = edit_dialog.get_updated_steps()
+                            updated_description = edit_dialog.get_test_case_description()
+                            updated_assumptions = edit_dialog.get_test_case_assumptions()
+                            
+                            # ✅ Update the current test case data
+                            self.added_steps = updated_steps
+                            self.test_case_description_input.setText(updated_description)
+                            self.test_case_assumptions_input.setHtml(updated_assumptions)
+                            
+                            # ✅ CRITICAL: Update end_main_step to reflect new step count
+                            if end_step_data == -1:
+                                end_main_step = len(self.added_steps)
+                            
+                            print(f"Test case updated during execution. Total steps: {len(self.added_steps)}")
+                            
+                            QMessageBox.information(
+                                break_dialog,
+                                "Test Case Updated",
+                                f"Test case has been updated.\nTotal steps: {len(self.added_steps)}\n"
+                                f"Press 'Resume Execution' to continue from Step {step_num}."
+                            )
+                            
+                            break_dialog.raise_()
+                            break_dialog.activateWindow()
+                            
+                            # Wait for next action
+                            while break_dialog.result_action is None:
+                                QApplication.processEvents()
+                                time.sleep(0.1)
+                            
+                            action = break_dialog.result_action
+                            
+                            if action == BreakExecutionDialog.STOP:
+                                self.execution_stop_flag = True
+                                break_dialog.close()
+                                break
+                            elif action == BreakExecutionDialog.RESUME:
+                                break_dialog.close()
+                        
                         elif action == BreakExecutionDialog.RESUME:
+                            print("User chose to resume execution")
                             break_dialog.close()
-                            # ✅ Continue execution from current step
-                    
-                    elif action == BreakExecutionDialog.RESUME:
-                        print("User chose to resume execution")
-                        break_dialog.close()
-        
+                else:
+                    print(f"  Skipping main step {step_num}, starting from utility step {utility_start + 1}")
+                
                 time.sleep(0.1)
-                step_idx += 1
         
-                # ✅ NEW: Execute utility steps with range control
+                # ✅ FIXED: Execute utility steps with range control
                 if execute_utilities:
                     utility_steps = step.get('utility_steps', [])
                     
-                    # Determine actual utility range
-                    u_start = utility_start if step_idx == start_main_step else 0
+                    # ✅ FIXED: Determine actual utility range
+                    u_start = utility_start  # Use the calculated utility_start
                     u_end = len(utility_steps) if utility_end == -1 else min(utility_end + 1, len(utility_steps))
                     
-                    print(f"  Executing utility steps {u_start} to {u_end-1} for Step {step_num}")
+                    if u_start < len(utility_steps):  # ✅ Only log if we have utilities to execute
+                        print(f"  Executing utility steps {u_start + 1} to {u_end} for Step {step_num}")
                     
                     for utility_idx in range(u_start, u_end):
                         if self.execution_stop_flag:
@@ -7222,7 +7253,7 @@ class EditTestCaseDialog(QDialog):
                                                 col = int(label.get('column', 1))
                                                 length = int(label.get('length', len(value)))
 
-                                                actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
+                                                actual_value = autECLPS.GetText(row, col, length)
                                                 
                                                 # ✅ NEW: Use validation helper function
                                                 validation_passed = self.validate_field_value(actual_value, value)
@@ -7239,7 +7270,7 @@ class EditTestCaseDialog(QDialog):
                                                             f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
                                                             f"Expected: '{value}'\n"
                                                             f"Actual: '{actual_value.strip()}'")
-                                                        self.execution_stop_flag = True
+                                                    self.execution_stop_flag = True
                                                 
                                                 time.sleep(0.1)
                                                 break
@@ -7248,7 +7279,7 @@ class EditTestCaseDialog(QDialog):
                             row = int(utility_step.get('row', 1))
                             col = int(utility_step.get('column', 1))
                             value = str(utility_step.get('value', '')).strip()
-                            is_special_key = utility_step.get('is_special_key', False)  # ✅ CHANGED
+                            is_special_key = utility_step.get('is_special_key', False)
                             
                             if value:
                                 print(f"  Utility Step {step_num}.{utility_idx + 1}: Random Input at ({row}, {col})")
@@ -7276,10 +7307,12 @@ class EditTestCaseDialog(QDialog):
                                     print(f"  Utility Step {step_num}.{utility_idx + 1}: Sent text '{value}'")
                                 
                                 # Wait for screen change
-                                complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")                        
+                                complete_pcomm_wait(autECLPS, before_screen, action_description="Random Input")
+                        
                         time.sleep(0.1)
                 
                 time.sleep(0.1)
+                step_idx += 1
             
             pythoncom.CoUninitialize()
             
@@ -7302,7 +7335,7 @@ class EditTestCaseDialog(QDialog):
             self.is_executing = False
             self.execution_stop_flag = False
             self.execute_button.setIcon(self.main_window.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-    
+        
     def update_step_combo_options(self):
         """Updates the dropdown options for start and end step based on number of steps."""
         self.start_step_combo.blockSignals(True)
