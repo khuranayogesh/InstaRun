@@ -2678,7 +2678,7 @@ class TestExecutionDialog(QDialog):
                             break
                             
                         action_type = field.get("action_type", "Input")
-                        value = str(field.get("value", "")).strip()
+                        value = str(field.get("value", "")).strip()                    
                         
                         if action_type == "Input":
                             if not value:
@@ -2697,7 +2697,7 @@ class TestExecutionDialog(QDialog):
                                         
                                         # Substitute variables in the value before sending
                                         substituted_value = self.substitute_execution_variables(value, test_case_name)
-                                        
+                                         
                                         autECLPS.SetCursorPos(row, col)
                                         autECLPS.SendKeys(substituted_value)
                                         time.sleep(0.1)
@@ -2744,15 +2744,17 @@ class TestExecutionDialog(QDialog):
                                         row = int(label.get("row", 1))
                                         col = int(label.get("column", 1))
                                         length = int(label.get("length", len(value)))
-                                                                          
-                                        actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                         
-                                        # ✅ NEW: Use validation helper function
-                                        validation_passed = self.validate_field_value(actual_value, value)
+                                        # ✅ ADD: Substitute variables in expected value
+                                        expected_value = self.substitute_execution_variables(value, test_case_name)
+                                                                  
+                                        actual_value = autECLPS.GetText(row, col, length)
+                                        
+                                        # ✅ Use substituted expected_value
+                                        validation_passed = self.validate_field_value(actual_value, expected_value)
                                         
                                         if not validation_passed:
-                                            # ✅ ENHANCED: Better error message for {blank} validation
-                                            if value.lower() == '{blank}':
+                                            if expected_value.lower() == '{blank}':  # ✅ CHANGED
                                                 validation_failures.append({
                                                     "step": step_index,
                                                     "field": field_name,
@@ -2763,7 +2765,7 @@ class TestExecutionDialog(QDialog):
                                                 validation_failures.append({
                                                     "step": step_index,
                                                     "field": field_name,
-                                                    "expected": value,
+                                                    "expected": expected_value,  # ✅ CHANGED
                                                     "actual": actual_value.strip()
                                                 })
                                             # Stop execution immediately on validation failure
@@ -3134,18 +3136,20 @@ class TestExecutionDialog(QDialog):
                                             if label_name == field_name:
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
-                                                length = int(label.get('length', len(value)))
-
+                                                
+                                                # ✅ ADD: Substitute variables in expected value FIRST
+                                                expected_value = self.substitute_execution_variables(value, test_case_name)
+                                                length = int(label.get('length', len(expected_value)))  # ✅ Use substituted length
                                                 
                                                 # Read actual value from screen
-                                                actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
+                                                actual_value = autECLPS.GetText(row, col, length)
                                                 
-                                                # ✅ NEW: Use validation helper function
-                                                validation_passed = self.validate_field_value(actual_value, value)
+                                                # ✅ Use substituted expected_value
+                                                validation_passed = self.validate_field_value(actual_value, expected_value)
                                                 
                                                 if not validation_passed:
                                                     # ✅ ENHANCED: Better error message for {blank} validation
-                                                    if value.lower() == '{blank}':
+                                                    if expected_value.lower() == '{blank}':  # ✅ CHANGED from value
                                                         validation_failures.append({
                                                             "step": f"{step_index}.{sub_index}",
                                                             "field": field_name,
@@ -3156,14 +3160,14 @@ class TestExecutionDialog(QDialog):
                                                         validation_failures.append({
                                                             "step": f"{step_index}.{sub_index}",
                                                             "field": field_name,
-                                                            "expected": value,
+                                                            "expected": expected_value,  # ✅ CHANGED from value
                                                             "actual": actual_value.strip()
                                                         })
                                                     # ✅ Stop execution immediately on validation failure
-                                                    print(f"❌ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
+                                                    print(f"❌ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{expected_value}', Got '{actual_value}'")  # ✅ CHANGED from value
                                                     break
                                                 
-                                                print(f"Step {step_index}.{sub_index}: Validated {field_name} - Expected: '{value}', Actual: '{actual_value}'")
+                                                print(f"Step {step_index}.{sub_index}: Validated {field_name} - Expected: '{expected_value}', Actual: '{actual_value}'")  # ✅ CHANGED from value
                                                 time.sleep(0.1)
                                                 break
                                             
@@ -3708,15 +3712,17 @@ class TestExecutionDialog(QDialog):
                                             row = int(label.get("row", 1))
                                             col = int(label.get("column", 1))
                                             length = int(label.get("length", len(value)))
-
-                                            actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                             
-                                            # ✅ NEW: Use validation helper function
-                                            validation_passed = self.validate_field_value(actual_value, value)
+                                            # ✅ ADD: Substitute variables in expected value
+                                            expected_value = self.substitute_execution_variables(value, test_case_name)
+                                                                      
+                                            actual_value = autECLPS.GetText(row, col, length)
+                                            
+                                            # ✅ Use substituted expected_value
+                                            validation_passed = self.validate_field_value(actual_value, expected_value)
                                             
                                             if not validation_passed:
-                                                # ✅ ENHANCED: Better error message for {blank} validation
-                                                if value.lower() == '{blank}':
+                                                if expected_value.lower() == '{blank}':  # ✅ CHANGED
                                                     validation_failures.append({
                                                         "step": step_index,
                                                         "field": field_name,
@@ -3727,7 +3733,7 @@ class TestExecutionDialog(QDialog):
                                                     validation_failures.append({
                                                         "step": step_index,
                                                         "field": field_name,
-                                                        "expected": value,
+                                                        "expected": expected_value,  # ✅ CHANGED
                                                         "actual": actual_value.strip()
                                                     })
                                                 # Stop execution immediately on validation failure
@@ -4184,7 +4190,7 @@ class TestExecutionDialog(QDialog):
                                                     time.sleep(0.1)
                                                     break
                                     
-                                    # âœ… FIXED: Process Validation fields AFTER inputs
+                                    # ✅ FIXED: Process Validation fields AFTER inputs
                                     for field in utility_step.get('fields', []):
                                         if self.stop_execution:
                                             test_was_stopped = True
@@ -4202,17 +4208,20 @@ class TestExecutionDialog(QDialog):
                                                 if label_name == field_name:
                                                     row = int(label.get('row', 1))
                                                     col = int(label.get('column', 1))
-                                                    length = int(label.get('length', len(value)))
-
-                                                    # Read actual value from screen
-                                                    actual_value = autECLPS.GetText(row, col, length)  # ← Remove .strip() here
                                                     
-                                                    # ✅ NEW: Use validation helper function
-                                                    validation_passed = self.validate_field_value(actual_value, value)
+                                                    # ✅ ADD: Substitute variables in expected value FIRST
+                                                    expected_value = self.substitute_execution_variables(value, test_case_name)
+                                                    length = int(label.get('length', len(expected_value)))  # ✅ Use substituted length
+                                                    
+                                                    # Read actual value from screen
+                                                    actual_value = autECLPS.GetText(row, col, length)
+                                                    
+                                                    # ✅ Use substituted expected_value
+                                                    validation_passed = self.validate_field_value(actual_value, expected_value)
                                                     
                                                     if not validation_passed:
                                                         # ✅ ENHANCED: Better error message for {blank} validation
-                                                        if value.lower() == '{blank}':
+                                                        if expected_value.lower() == '{blank}':  # ✅ CHANGED from value
                                                             validation_failures.append({
                                                                 "step": f"{step_index}.{sub_index}",
                                                                 "field": field_name,
@@ -4223,14 +4232,14 @@ class TestExecutionDialog(QDialog):
                                                             validation_failures.append({
                                                                 "step": f"{step_index}.{sub_index}",
                                                                 "field": field_name,
-                                                                "expected": value,
+                                                                "expected": expected_value,  # ✅ CHANGED from value
                                                                 "actual": actual_value.strip()
                                                             })
-                                                        # âœ… Stop execution immediately on validation failure
-                                                        print(f"âŒ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{value}', Got '{actual_value}'")
+                                                        # ✅ Stop execution immediately on validation failure
+                                                        print(f"❌ Utility validation failed at Step {step_index}.{sub_index} - Field '{field_name}': Expected '{expected_value}', Got '{actual_value}'")  # ✅ CHANGED from value
                                                         break
                                                     
-                                                    print(f"Step {step_index}.{sub_index}: Validated {field_name} - Expected: '{value}', Actual: '{actual_value}'")
+                                                    print(f"Step {step_index}.{sub_index}: Validated {field_name} - Expected: '{expected_value}', Actual: '{actual_value}'")  # ✅ CHANGED from value
                                                     time.sleep(0.1)
                                                     break
                                             
@@ -5599,6 +5608,34 @@ class EditTestCaseDialog(QDialog):
             existing_prereqs = self.main_window.test_cases[test_case_name].get('prerequisites', [])
             for prereq in existing_prereqs:
                 self.add_prerequisite_chip(prereq)
+
+    def substitute_execution_variables(self, text, test_case_name):
+        """
+        Substitutes variables during preview execution.
+        Uses current form values for test description.
+        """
+        from datetime import datetime
+        
+        if not text:
+            return text
+        
+        now = datetime.now()
+        
+        variables = {
+            'date': now.strftime('%Y.%m.%d'),
+            'time': now.strftime('%H:%M:%S'),
+            'datetime': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'test_case_id': test_case_name,
+            'test_description': self.test_case_description_input.text(),
+            'space': ' '
+        }
+        
+        result = text
+        for var_name, var_value in variables.items():
+            placeholder = '{' + var_name + '}'
+            result = result.replace(placeholder, var_value)
+        
+        return result
 
     def validate_field_value(self, actual_value, expected_value):
         """
@@ -6972,8 +7009,11 @@ class EditTestCaseDialog(QDialog):
                                             row = int(label.get('row', 1))
                                             col = int(label.get('column', 1))
                                             
+                                            # ✅ ADD: Substitute variables
+                                            substituted_value = self.substitute_execution_variables(value, self.test_case_name_input.text())
+                                            
                                             autECLPS.SetCursorPos(row, col)
-                                            autECLPS.SendKeys(value)
+                                            autECLPS.SendKeys(substituted_value)  # ✅ NOW SUBSTITUTED
                                             time.sleep(0.2)
                                             break
                         
@@ -6997,15 +7037,18 @@ class EditTestCaseDialog(QDialog):
                                             row = int(label.get('row', 1))
                                             col = int(label.get('column', 1))
                                             length = int(label.get('length', len(value)))
+                                            
+                                            # ✅ ADD: Substitute variables in expected value
+                                            expected_value = self.main_window.substitute_execution_variables(value, self.test_case_name_input.text())
 
                                             actual_value = autECLPS.GetText(row, col, length)
                                             
-                                            # ✅ NEW: Use validation helper function
-                                            validation_passed = self.validate_field_value(actual_value, value)
+                                            # ✅ Use substituted expected_value
+                                            validation_passed = self.validate_field_value(actual_value, expected_value)
                                             
                                             if not validation_passed:
                                                 # ✅ ENHANCED: Better error message for {blank} validation
-                                                if value.lower() == '{blank}':
+                                                if expected_value.lower() == '{blank}':  # ✅ CHANGED from value
                                                     QMessageBox.warning(self, "Validation Failed",
                                                         f"Step {step_num}: Field '{field_name}'\n"
                                                         f"Expected: <blank>\n"
@@ -7013,7 +7056,7 @@ class EditTestCaseDialog(QDialog):
                                                 else:
                                                     QMessageBox.warning(self, "Validation Failed",
                                                         f"Step {step_num}: Field '{field_name}'\n"
-                                                        f"Expected: '{value}'\n"
+                                                        f"Expected: '{expected_value}'\n"  # ✅ CHANGED from value
                                                         f"Actual: '{actual_value.strip()}'")
                                                 self.execution_stop_flag = True
                                             
@@ -7230,9 +7273,12 @@ class EditTestCaseDialog(QDialog):
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
                                                 
+                                                # ✅ ADD: Substitute variables
+                                                substituted_value = self.substitute_execution_variables(value, self.test_case_name_input.text())
+                                                
                                                 autECLPS.SetCursorPos(row, col)
-                                                autECLPS.SendKeys(value)
-                                                print(f"Utility Step {step_num}.{utility_idx + 1}: Sent input '{value}' to {field_name}")
+                                                autECLPS.SendKeys(substituted_value)  # ✅ NOW SUBSTITUTED
+                                                print(f"Utility Step {step_num}.{utility_idx + 1}: Sent input '{substituted_value}' to {field_name}")
                                                 time.sleep(0.2)
                                                 break
                                 
@@ -7252,15 +7298,17 @@ class EditTestCaseDialog(QDialog):
                                                 row = int(label.get('row', 1))
                                                 col = int(label.get('column', 1))
                                                 length = int(label.get('length', len(value)))
+                                                
+                                                # ✅ ADD: Substitute variables in expected value
+                                                expected_value = self.main_window.substitute_execution_variables(value, self.test_case_name_input.text())
 
                                                 actual_value = autECLPS.GetText(row, col, length)
                                                 
-                                                # ✅ NEW: Use validation helper function
-                                                validation_passed = self.validate_field_value(actual_value, value)
+                                                # ✅ Use substituted expected_value
+                                                validation_passed = self.validate_field_value(actual_value, expected_value)
                                                 
                                                 if not validation_passed:
-                                                    # ✅ ENHANCED: Better error message for {blank} validation
-                                                    if value.lower() == '{blank}':
+                                                    if expected_value.lower() == '{blank}':  # ✅ CHANGED
                                                         QMessageBox.warning(self, "Validation Failed",
                                                             f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
                                                             f"Expected: <blank>\n"
@@ -7268,7 +7316,7 @@ class EditTestCaseDialog(QDialog):
                                                     else:
                                                         QMessageBox.warning(self, "Validation Failed",
                                                             f"Utility Step {step_num}.{utility_idx + 1}: Field '{field_name}'\n"
-                                                            f"Expected: '{value}'\n"
+                                                            f"Expected: '{expected_value}'\n"  # ✅ CHANGED
                                                             f"Actual: '{actual_value.strip()}'")
                                                     self.execution_stop_flag = True
                                                 
@@ -10037,6 +10085,38 @@ class PCOMMMainFrame(QMainWindow):
         self.toggle_properties_action.toggled.connect(self.bottom_dock.setVisible)
         self.bottom_dock.visibilityChanged.connect(self.toggle_properties_action.setChecked)
         self.libraries_tabs.tabCloseRequested.connect(self.close_library_tab)
+    
+    def substitute_execution_variables(self, text, test_case_name):
+        """
+        Substitutes variables during test execution.
+        Used by TestExecutionDialog and other execution contexts.
+        """
+        from datetime import datetime
+        
+        if not text:
+            return text
+        
+        now = datetime.now()
+        
+        # Get test case data from the library
+        test_case_data = self.test_cases.get(test_case_name, {})
+        test_description = test_case_data.get('description', '')
+        
+        variables = {
+            'date': now.strftime('%Y.%m.%d'),
+            'time': now.strftime('%H:%M:%S'),
+            'datetime': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'test_case_id': test_case_name,
+            'test_description': test_description,  # ✅ Gets from saved test case data
+            'space': ' '
+        }
+        
+        result = text
+        for var_name, var_value in variables.items():
+            placeholder = '{' + var_name + '}'
+            result = result.replace(placeholder, var_value)
+        
+        return result   
     
     def update_selection_info_status_only(self, start_row, start_col, selected_text, selection_length):
         """Updates only the status bar without triggering any popups."""
