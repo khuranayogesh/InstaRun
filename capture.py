@@ -5516,9 +5516,6 @@ class EditTestCaseDialog(QDialog):
         utility_header_layout.addStretch()
         utility_steps_layout.addLayout(utility_header_layout)
 
-        utility_header_layout.addStretch()
-        utility_steps_layout.addLayout(utility_header_layout)
-
         self.utility_steps_list_widget = QListWidget()
         self.utility_steps_list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.utility_steps_list_widget.setSelectionBehavior(QListWidget.SelectionBehavior.SelectRows)
@@ -5593,6 +5590,28 @@ class EditTestCaseDialog(QDialog):
         # Dialog buttons
         close_button_layout = QHBoxLayout()
         close_button_layout.addStretch()
+        
+        # ✅ NEW: Add Save button
+        save_button = QPushButton("💾 Save")
+        save_button.setFixedWidth(80)
+        save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+            QPushButton:pressed {
+                background-color: #047857;
+            }
+        """)
+        save_button.clicked.connect(self.save_test_case)
+        close_button_layout.addWidget(save_button)
+        
         close_button = QPushButton("Close")
         close_button.setFixedWidth(60)
         close_button.clicked.connect(self.accept)
@@ -5608,6 +5627,76 @@ class EditTestCaseDialog(QDialog):
             existing_prereqs = self.main_window.test_cases[test_case_name].get('prerequisites', [])
             for prereq in existing_prereqs:
                 self.add_prerequisite_chip(prereq)
+                
+    def save_test_case(self):
+        """
+        Saves the test case without closing the dialog.
+        Updates the test case in main_window.test_cases and saves to file.
+        """
+        # Get the current test case name (might have been changed)
+        new_test_case_name = self.test_case_name_input.text().strip()
+        
+        if not new_test_case_name:
+            QMessageBox.warning(self, "Missing Name", "Please enter a test case name.")
+            return
+        
+        # Check if the name was changed and if the new name already exists
+        if new_test_case_name != self.original_test_case_name:
+            if new_test_case_name in self.main_window.test_cases:
+                QMessageBox.warning(
+                    self, 
+                    "Duplicate Name", 
+                    f"A test case named '{new_test_case_name}' already exists.\n"
+                    "Please choose a different name or keep the original name."
+                )
+                return
+        
+        # Save current step fields if editing a step
+        current_item = self.steps_list_widget.currentItem()
+        if current_item:
+            step_index = self.steps_list_widget.row(current_item)
+            if 0 <= step_index < len(self.added_steps):
+                self.save_table_data_to_step(step_index, show_message=False)
+        
+        # Build the complete test case data
+        test_case_data = {
+            'name': new_test_case_name,
+            'description': self.test_case_description_input.text().strip(),
+            'assumptions': self.test_case_assumptions_input.toHtml(),
+            'prerequisites': self.get_prerequisites(),
+            'steps': self.added_steps
+        }
+        
+        # If name changed, remove old entry
+        if new_test_case_name != self.original_test_case_name:
+            if self.original_test_case_name in self.main_window.test_cases:
+                del self.main_window.test_cases[self.original_test_case_name]
+        
+        # Update or add the test case
+        self.main_window.test_cases[new_test_case_name] = test_case_data
+        
+        # Save to file
+        self.main_window.save_test_cases_to_file()
+        
+        # Update the original name for future saves
+        self.original_test_case_name = new_test_case_name
+        
+        # Update the window title
+        self.setWindowTitle(f"Edit Test Case: {new_test_case_name}")
+        
+        # Update step combo options after save
+        self.update_step_combo_options()
+        
+        # Show success message
+        QMessageBox.information(
+            self, 
+            "Saved Successfully", 
+            f"Test case '{new_test_case_name}' has been saved successfully!"
+        )
+        
+        # Refresh the main window's test case list if it exists
+        if hasattr(self.main_window, 'populate_test_cases_list'):
+            self.main_window.populate_test_cases_list()
 
     def substitute_execution_variables(self, text, test_case_name):
         """
@@ -7691,17 +7780,18 @@ class EditTestCaseDialog(QDialog):
     def save_table_data_to_step(self, step_index=None, show_message=False):
         """
         Saves the current state of the details table back to the step data.
-        FIXED: Uses internal_field_id for precise field matching instead of field_name.
-        ✅ FIXED: Now handles QTextEdit for Break steps correctly.
         """
-        # ✅ NEW: Get the currently selected main step to determine what we're editing
+        # Get the currently selected main step to determine what we're editing
         if step_index is None:
             current_item = self.steps_list_widget.currentItem()
             if not current_item:
                 return
             step_index = self.steps_list_widget.row(current_item)
         
+        # ✅ ADD THIS SAFETY CHECK
         if step_index < 0 or step_index >= len(self.added_steps):
+            if show_message:
+                QMessageBox.warning(self, "Invalid Step", f"Invalid step index: {step_index}")
             return
         
         step_data = self.added_steps[step_index]
@@ -7779,7 +7869,7 @@ class EditTestCaseDialog(QDialog):
                 if show_message:
                     QMessageBox.information(self, "Saved", "Utility module validation fields saved successfully.")
 
-            self.current_utility_step = None
+            #self.current_utility_step = None
             return
         
         # ✅ Below here is for MAIN STEPS only - clear utility reference
@@ -7866,8 +7956,7 @@ class EditTestCaseDialog(QDialog):
 
         if show_message:
             QMessageBox.information(self, "Saved", "Module fields saved successfully.")
-        else:
-            print(f"IndexError avoided: Invalid step index {step_index}")
+
             
     def add_capture_text_screenshot_step(self):
         """Adds a text screenshot capture step to the test case."""
@@ -10090,7 +10179,7 @@ class PCOMMMainFrame(QMainWindow):
         self._saved_libraries_state = False
         self._saved_properties_state = False
         self.setup_dock_tracking()
-        print("✅ Dock tracking installed")
+
         
 
     def changeEvent(self, event):
@@ -10129,8 +10218,7 @@ class PCOMMMainFrame(QMainWindow):
             if hasattr(self, 'libraries_dock') and hasattr(self, 'bottom_dock'):
                 self._saved_libraries_state = self.libraries_dock.isVisible()
                 self._saved_properties_state = self.bottom_dock.isVisible()
-                print(f"📊 Tracked - Libraries: {self._saved_libraries_state}, Properties: {self._saved_properties_state}")
-
+                
     def restore_dock_states(self):
         """Restore dock widget visibility states after restore/maximize."""
         libraries_should_show = self._saved_libraries_state
