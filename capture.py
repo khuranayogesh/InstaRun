@@ -10081,10 +10081,78 @@ class PCOMMMainFrame(QMainWindow):
         # Connect the Libraries menu action to toggle the dock visibility
         self.toggle_libraries_action.toggled.connect(self.toggle_libraries_dock)
         self.libraries_dock.visibilityChanged.connect(self.toggle_libraries_action.setChecked)
-        
+      
         self.toggle_properties_action.toggled.connect(self.bottom_dock.setVisible)
         self.bottom_dock.visibilityChanged.connect(self.toggle_properties_action.setChecked)
+        
         self.libraries_tabs.tabCloseRequested.connect(self.close_library_tab)
+        
+        self._saved_libraries_state = False
+        self._saved_properties_state = False
+        self.setup_dock_tracking()
+        print("✅ Dock tracking installed")
+        
+
+    def changeEvent(self, event):
+        """Handle window state changes."""
+        from PyQt6.QtCore import QEvent
+        
+        if event.type() == QEvent.Type.WindowStateChange:
+            old_state = event.oldState()
+            new_state = self.windowState()
+            
+            was_minimized = bool(old_state & Qt.WindowState.WindowMinimized)
+            is_minimized = bool(new_state & Qt.WindowState.WindowMinimized)
+            
+            # When minimizing - just print what we have saved
+            if not was_minimized and is_minimized:
+                print("🔽 Window minimizing")
+                print(f"✅ Will restore - Libraries: {self._saved_libraries_state}, Properties: {self._saved_properties_state}")
+            # When restoring from minimized
+            elif was_minimized and not is_minimized:
+                print("🔼 Window restoring - will restore dock states")
+                QTimer.singleShot(100, self.restore_dock_states)
+        
+        super().changeEvent(event)
+
+    def setup_dock_tracking(self):
+        """Track dock visibility changes in real-time."""
+        if hasattr(self, 'libraries_dock') and self.libraries_dock:
+            self.libraries_dock.visibilityChanged.connect(self.on_dock_visibility_changed)
+        if hasattr(self, 'bottom_dock') and self.bottom_dock:
+            self.bottom_dock.visibilityChanged.connect(self.on_dock_visibility_changed)
+
+    def on_dock_visibility_changed(self, visible):
+        """Called whenever a dock's visibility changes."""
+        # Only track if window is NOT minimized
+        if not (self.windowState() & Qt.WindowState.WindowMinimized):
+            if hasattr(self, 'libraries_dock') and hasattr(self, 'bottom_dock'):
+                self._saved_libraries_state = self.libraries_dock.isVisible()
+                self._saved_properties_state = self.bottom_dock.isVisible()
+                print(f"📊 Tracked - Libraries: {self._saved_libraries_state}, Properties: {self._saved_properties_state}")
+
+    def restore_dock_states(self):
+        """Restore dock widget visibility states after restore/maximize."""
+        libraries_should_show = self._saved_libraries_state
+        properties_should_show = self._saved_properties_state
+        
+        print(f"🔄 Restoring - Libraries: {libraries_should_show}, Properties: {properties_should_show}")
+        
+        # Restore Libraries dock
+        if self.libraries_dock and libraries_should_show:
+            self.libraries_dock.setVisible(True)
+            self.libraries_dock.raise_()
+            if hasattr(self, 'toggle_libraries_action'):
+                self.toggle_libraries_action.setChecked(True)
+        
+        # Restore Module Properties dock
+        if self.bottom_dock and properties_should_show:
+            self.bottom_dock.setVisible(True)
+            self.bottom_dock.raise_()
+            if hasattr(self, 'toggle_properties_action'):
+                self.toggle_properties_action.setChecked(True)
+        
+        print(f"✅ Restored")        
     
     def substitute_execution_variables(self, text, test_case_name):
         """
