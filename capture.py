@@ -2029,25 +2029,35 @@ class TestExecutionDialog(QDialog):
         item_layout.addWidget(execution_time_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Step selector
+        # Step selector
         step_label = QLabel("Start from:")
         step_label.setStyleSheet("font-size: 9pt;")
         item_layout.addWidget(step_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        
+
         step_combo = QComboBox()
         step_combo.setObjectName("step_combo")
-        step_combo.setFixedWidth(100)
+        step_combo.setFixedWidth(120)
         step_combo.setFixedHeight(22)
         step_combo.setStyleSheet("font-size: 9pt; margin-bottom: 8px;")
-        
+
         if test_case_data and 'steps' in test_case_data:
-            num_steps = len(test_case_data['steps'])
-            for i in range(1, num_steps + 1):
-                step_combo.addItem(f"Step {i}")
+            steps = test_case_data['steps']
+            
+            # ✅ NEW: Dynamically generate step numbers with utility sub-steps (like Edit Test Case window)
+            for idx, step in enumerate(steps, start=1):
+                # Add main step
+                step_combo.addItem(f"Step {idx}", idx)
+                
+                # ✅ Add utility sub-steps (3.1, 3.2, etc.)
+                utility_steps = step.get('utility_steps', [])
+                for sub_idx in range(1, len(utility_steps) + 1):
+                    step_combo.addItem(f"Step {idx}.{sub_idx}", (idx, sub_idx))
         else:
             step_combo.addItem("Step 1")
-        
+
         step_combo.setCurrentIndex(0)
         item_layout.addWidget(step_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+
         
         # Status Label
         status_label = QLabel("Not Run")
@@ -2124,7 +2134,7 @@ class TestExecutionDialog(QDialog):
         return self.displayed_test_cases.get(test_case_name)
         
     def get_start_step_index(self, test_case_name):
-        """Gets the selected start step index."""
+        """Gets the selected start step index and utility sub-index if applicable."""
         for i in range(self.test_case_list.count()):
             item = self.test_case_list.item(i)
             item_data = item.data(Qt.ItemDataRole.UserRole)
@@ -2133,9 +2143,16 @@ class TestExecutionDialog(QDialog):
                 widget = self.test_case_list.itemWidget(item)
                 step_combo = widget.findChild(QComboBox, "step_combo")
                 if step_combo:
-                    return step_combo.currentIndex()
+                    # Get the data stored with the current item
+                    step_data = step_combo.currentData()
+                    if isinstance(step_data, tuple):
+                        # It's a utility step: (main_step_index, utility_sub_index)
+                        return step_data
+                    else:
+                        # It's a main step: return the step index (1-based)
+                        return step_data if step_data is not None else 1
                 break
-        return 0
+        return 1  # Default to step 1
     
     def update_status(self, test_case_name, status):
         """Updates status for a test case."""
@@ -2328,52 +2345,72 @@ class TestExecutionDialog(QDialog):
     def import_from_device(self, project_name=None):
         """Imports test cases from device - updated to support projects."""
         options = QFileDialog.Option.ReadOnly
-        file_path, _ = QFileDialog.getOpenFileName(self, "Import Test Cases from Device", "",
-                                                   "JSON Files (*.json);;All Files (*)", options=options)
+        file_paths, _ = QFileDialog.getOpenFileNames(  # ✅ CHANGED: getOpenFileNames (plural)
+            self, 
+            "Import Test Cases from Device", 
+            "",
+            "JSON Files (*.json);;All Files (*)", 
+            options=options
+        )
         
-        if file_path:
-            try:
-                with open(file_path, 'r') as f:
-                    imported_data = json.load(f)
-                
-                imported_cases = {}
-                if isinstance(imported_data, dict) and 'name' in imported_data and 'steps' in imported_data:
-                    test_case_name = imported_data['name']
-                    # ✅ FIXED: Deep copy to avoid reference issues
-                    imported_cases[test_case_name] = copy.deepcopy(imported_data)
-                elif isinstance(imported_data, dict):
-                    # ✅ FIXED: Deep copy to avoid reference issues
-                    imported_cases = copy.deepcopy(imported_data)
-                
-                if imported_cases:
-                    if project_name:
-                        # ✅ FIXED: Ensure project structure exists and is properly initialized
-                        if project_name not in self.projects:
-                            self.projects[project_name] = {
-                                'test_cases': {},
-                                'expanded': True,
-                                'status_data': {}
-                            }
-                        
-                        # ✅ CRITICAL FIX: Ensure test_cases is a dict
-                        if not isinstance(self.projects[project_name].get('test_cases'), dict):
-                            self.projects[project_name]['test_cases'] = {}
-                        
-                        # Add to project only - directly update the dict
-                        self.projects[project_name]['test_cases'].update(imported_cases)
-                    else:
-                        # Add to standalone only
-                        self.displayed_test_cases.update(imported_cases)
+        if file_paths:  # ✅ CHANGED: file_paths is now a list
+            imported_cases = {}
+            failed_imports = []
+            
+            for file_path in file_paths:  # ✅ NEW: Loop through all selected files
+                try:
+                    with open(file_path, 'r') as f:
+                        imported_data = json.load(f)
                     
-                    self.refresh_test_case_list()
-                    self.save_execution_data()
-                    QMessageBox.information(self, "Import Successful", 
-                                          f"Successfully imported {len(imported_cases)} test case(s).")
+                    # Handle single test case format
+                    if isinstance(imported_data, dict) and 'name' in imported_data and 'steps' in imported_data:
+                        test_case_name = imported_data['name']
+                        imported_cases[test_case_name] = copy.deepcopy(imported_data)
+                    # Handle multiple test cases format
+                    elif isinstance(imported_data, dict):
+                        for key, value in imported_data.items():
+                            if isinstance(value, dict) and 'steps' in value:
+                                imported_cases[key] = copy.deepcopy(value)
+                    
+                except Exception as e:
+                    failed_imports.append(f"{os.path.basename(file_path)}: {str(e)}")
+            
+            if imported_cases:
+                if project_name:
+                    # Ensure project structure exists
+                    if project_name not in self.projects:
+                        self.projects[project_name] = {
+                            'test_cases': {},
+                            'expanded': True,
+                            'status_data': {}
+                        }
+                    
+                    # Ensure test_cases is a dict
+                    if not isinstance(self.projects[project_name].get('test_cases'), dict):
+                        self.projects[project_name]['test_cases'] = {}
+                    
+                    # Add to project
+                    self.projects[project_name]['test_cases'].update(imported_cases)
                 else:
-                    QMessageBox.warning(self, "Import Failed", "No valid test cases found.")
+                    # Add to standalone
+                    self.displayed_test_cases.update(imported_cases)
+                
+                self.refresh_test_case_list()
+                self.save_execution_data()
+                
+                # ✅ NEW: Show detailed success/failure message
+                message = f"Successfully imported {len(imported_cases)} test case(s)."
+                if failed_imports:
+                    message += f"\n\nFailed imports ({len(failed_imports)}):\n" + "\n".join(failed_imports)
+                
+                QMessageBox.information(self, "Import Complete", message)
+            else:
+                if failed_imports:
+                    error_msg = "All imports failed:\n" + "\n".join(failed_imports)
+                    QMessageBox.critical(self, "Import Failed", error_msg)
+                else:
+                    QMessageBox.warning(self, "Import Failed", "No valid test cases found in selected files.")
 
-            except Exception as e:
-                QMessageBox.critical(self, "Import Error", f"Error: {e}")
                 
     def refresh_test_case_list(self):
         """Refreshes the entire test case list with projects and standalone tests."""
@@ -2525,14 +2562,23 @@ class TestExecutionDialog(QDialog):
             screen_cols = 80
 
             # Get the selected start step (0-based index)
-            start_step_index = self.get_start_step_index(test_case_name)
-            
-            # Process each step sequentially from the selected start step
+            # Get the selected start step (can be main step or utility step)
+            start_step_data = self.get_start_step_index(test_case_name)
+
             # Process each step sequentially from the selected start step
             all_steps = test_case_data.get("steps", [])
 
-            # ✅ CHANGED: Use while loop instead of for loop to allow dynamic step list updates
-            current_step_index = start_step_index
+            # ✅ CHANGED: Handle both main steps and utility steps
+            if isinstance(start_step_data, tuple):
+                # Starting from a utility step: (main_step_index, utility_sub_index)
+                start_main_step, start_utility_step = start_step_data
+                current_step_index = start_main_step - 1  # Convert to 0-based
+                start_from_utility = start_utility_step
+            else:
+                # Starting from a main step
+                current_step_index = start_step_data - 1  # Convert to 0-based
+                start_from_utility = None
+
             while current_step_index < len(all_steps):
                 step_index = current_step_index + 1  # Display as 1-based
                 step = all_steps[current_step_index]
@@ -2940,15 +2986,29 @@ class TestExecutionDialog(QDialog):
                 
                 
                 if 'utility_steps' in step:
-                    for sub_index, utility_step in enumerate(step['utility_steps'], 1):
+                    utility_steps_list = step['utility_steps']
+                    
+                    # ✅ Determine starting point for utility steps
+                    if start_from_utility is not None and current_step_index == (start_step_data[0] - 1 if isinstance(start_step_data, tuple) else -1):
+                        # Start from specific utility step
+                        utility_start_index = start_from_utility - 1
+                        start_from_utility = None  # Reset so we don't skip utility steps in subsequent main steps
+                    else:
+                        # Start from first utility step
+                        utility_start_index = 0
+                    
+                    for sub_index in range(utility_start_index, len(utility_steps_list)):
+                        utility_step = utility_steps_list[sub_index]
+                        actual_sub_index = sub_index + 1  # Convert to 1-based for display
+                        
                         if self.stop_execution:
-                            print(f"Execution stopped at utility step {step_index}.{sub_index}")
+                            print(f"Execution stopped at utility step {step_index}.{actual_sub_index}")
                             break
                         
                         QApplication.processEvents()
                         
                         utility_type = utility_step.get("type")
-                        print(f"Executing utility step {step_index}.{sub_index}: {utility_step.get('name', 'Unknown')}")
+                        print(f"Executing utility step {step_index}.{actual_sub_index}: {utility_step.get('name', 'Unknown')}")
                         
                         if utility_type == "special_key":
                             key_value = utility_step.get("key_value", "")
@@ -3593,15 +3653,23 @@ class TestExecutionDialog(QDialog):
                 
                 # Get the selected start step (0-based index)
                 # Get the selected start step (0-based index)
-                start_step_index = self.get_start_step_index(test_case_name)
+                start_step_data = self.get_start_step_index(test_case_name)
                 
                 # Flag to track if this test was stopped
                 test_was_stopped = False
                 
                 # ✅ CHANGED: Use while loop instead of for loop to allow dynamic step list updates
                 all_steps = test_case_data.get("steps", [])
-                current_step_index = start_step_index
-                
+                if isinstance(start_step_data, tuple):
+                    # Starting from a utility step: (main_step_index, utility_sub_index)
+                    start_main_step, start_utility_step = start_step_data
+                    current_step_index = start_main_step - 1  # Convert to 0-based
+                    start_from_utility = start_utility_step
+                else:
+                    # Starting from a main step
+                    current_step_index = start_step_data - 1  # Convert to 0-based
+                    start_from_utility = None
+
                 while current_step_index < len(all_steps):
                     step_index = current_step_index + 1  # Display as 1-based
                     step = all_steps[current_step_index]
@@ -4012,15 +4080,29 @@ class TestExecutionDialog(QDialog):
                     # ✅ NEW: Process utility steps for this main step
                     # Find this section in both execution methods:
                     if 'utility_steps' in step:
-                        for sub_index, utility_step in enumerate(step['utility_steps'], 1):
+                        utility_steps_list = step['utility_steps']
+                        
+                        # ✅ Determine starting point for utility steps
+                        if start_from_utility is not None and current_step_index == (start_step_data[0] - 1 if isinstance(start_step_data, tuple) else -1):
+                            # Start from specific utility step
+                            utility_start_index = start_from_utility - 1
+                            start_from_utility = None  # Reset so we don't skip utility steps in subsequent main steps
+                        else:
+                            # Start from first utility step
+                            utility_start_index = 0
+                        
+                        for sub_index in range(utility_start_index, len(utility_steps_list)):
+                            utility_step = utility_steps_list[sub_index]
+                            actual_sub_index = sub_index + 1  # Convert to 1-based for display
+                            
                             if self.stop_execution:
-                                print(f"Execution stopped at utility step {step_index}.{sub_index}")
+                                print(f"Execution stopped at utility step {step_index}.{actual_sub_index}")
                                 break
                             
                             QApplication.processEvents()
                             
                             utility_type = utility_step.get("type")
-                            print(f"Executing utility step {step_index}.{sub_index}: {utility_step.get('name', 'Unknown')}")
+                            print(f"Executing utility step {step_index}.{actual_sub_index}: {utility_step.get('name', 'Unknown')}")
                             
                    
                             
@@ -5408,6 +5490,7 @@ class EditTestCaseDialog(QDialog):
         self.steps_list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.steps_list_widget.setSelectionBehavior(QListWidget.SelectionBehavior.SelectRows)
         self.steps_list_widget.currentItemChanged.connect(self.display_module_details)
+        self.steps_list_widget.itemClicked.connect(self.on_main_step_force_refresh)
         self.steps_list_widget.itemClicked.connect(self.on_main_step_clicked)
         main_steps_layout.addWidget(self.steps_list_widget)
         
@@ -5578,9 +5661,50 @@ class EditTestCaseDialog(QDialog):
         right_layout.addWidget(self.details_table)
 
         # Save button for the fields
-        save_button = QPushButton("Save Step Fields")
+        # ✅ NEW: Add a horizontal layout for Save and Clear buttons
+        save_clear_layout = QHBoxLayout()
+
+        # Save button for the fields
+        save_button = QPushButton("💾 Save Step Fields")
+        save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+            QPushButton:pressed {
+                background-color: #047857;
+            }
+        """)
         save_button.clicked.connect(self.save_table_data_to_step_with_message)
-        right_layout.addWidget(save_button)
+        save_clear_layout.addWidget(save_button)
+
+        # ✅ NEW: Clear button
+        clear_button = QPushButton("🗑️ Clear Fields")
+        clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:pressed {
+                background-color: #b91c1c;
+            }
+        """)
+        clear_button.clicked.connect(self.clear_current_fields)
+        save_clear_layout.addWidget(clear_button)
+
+        right_layout.addLayout(save_clear_layout)
         
         splitter.addWidget(right_widget)
         #splitter.setSizes([200, 600])
@@ -5627,7 +5751,89 @@ class EditTestCaseDialog(QDialog):
             existing_prereqs = self.main_window.test_cases[test_case_name].get('prerequisites', [])
             for prereq in existing_prereqs:
                 self.add_prerequisite_chip(prereq)
-                
+         
+    def clear_current_fields(self):
+        """
+        Clears all field values in the currently displayed table.
+        Works for both main steps and utility steps.
+        """
+        # Check if there's anything to clear
+        if self.details_table.rowCount() == 0:
+            QMessageBox.information(self, "Nothing to Clear", "No fields are currently displayed.")
+            return
+        
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Clear Fields",
+            "Are you sure you want to clear all field values?\n\nThis will not save automatically - you need to click 'Save Step Fields' to save the changes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Clear all editable fields in the table
+        cleared_count = 0
+        
+        for row in range(self.details_table.rowCount()):
+            # Check column 1 for value widgets (QLineEdit or QTextEdit)
+            value_widget = self.details_table.cellWidget(row, 1)
+            
+            if value_widget:
+                if isinstance(value_widget, QLineEdit):
+                    value_widget.clear()
+                    cleared_count += 1
+                elif isinstance(value_widget, QTextEdit):
+                    value_widget.clear()
+                    cleared_count += 1
+            
+            # Check column 2 for highlight checkboxes (for screenshot steps)
+            checkbox_widget = self.details_table.cellWidget(row, 2)
+            if checkbox_widget:
+                checkbox = checkbox_widget.findChild(QCheckBox)
+                if checkbox:
+                    checkbox.setChecked(False)
+                    cleared_count += 1
+        
+        if cleared_count > 0:
+            self.statusBar().showMessage(
+                f"Cleared {cleared_count} field(s). Click 'Save Step Fields' to save changes.",
+                5000
+            )
+        else:
+            QMessageBox.information(self, "Nothing Cleared", "No editable fields found to clear.")         
+         
+    def on_main_step_force_refresh(self, item):
+        """
+        Forces refresh of main step details when clicked, even if already selected.
+        This handles the case where user clicks on main step after viewing its utility step.
+        """
+        if not item:
+            return
+        
+        # Check if we were previously editing a utility step
+        was_editing_utility = hasattr(self, 'current_utility_step') and self.current_utility_step is not None
+        
+        if was_editing_utility:
+            # Clear the utility step reference
+            self.current_utility_step = None
+            
+            # Clear utility list selection to avoid confusion
+            self.utility_steps_list_widget.clearSelection()
+            
+            # Force refresh by calling display_module_details
+            # Pass the same item as both current and previous to force full refresh
+            self.display_module_details(item, item)
+            
+            # Show notification
+            QMessageBox.information(
+                self,
+                "Main Step Selected",
+                "Now showing main step fields."
+            )
+         
     def save_test_case(self):
         """
         Saves the test case without closing the dialog.
@@ -5651,12 +5857,23 @@ class EditTestCaseDialog(QDialog):
                 )
                 return
         
-        # Save current step fields if editing a step
-        current_item = self.steps_list_widget.currentItem()
-        if current_item:
-            step_index = self.steps_list_widget.row(current_item)
+        # ✅ CRITICAL FIX: Only save if we're editing a MAIN step (not utility step)
+        # Check what's currently selected
+        current_main_item = self.steps_list_widget.currentItem()
+        current_utility_item = self.utility_steps_list_widget.currentItem()
+        
+        # Only auto-save if a main step is selected AND no utility step is selected
+        if current_main_item and not current_utility_item:
+            step_index = self.steps_list_widget.row(current_main_item)
             if 0 <= step_index < len(self.added_steps):
-                self.save_table_data_to_step(step_index, show_message=False)
+                # Make sure we're not editing a utility step
+                if not (hasattr(self, 'current_utility_step') and self.current_utility_step):
+                    self.save_table_data_to_step(step_index, show_message=False)
+        
+        # ✅ If a utility step is selected, save that instead
+        elif current_utility_item:
+            # Just save the utility step data
+            self.save_table_data_to_step(show_message=False)
         
         # Build the complete test case data
         test_case_data = {
@@ -5851,6 +6068,8 @@ class EditTestCaseDialog(QDialog):
 
     def display_utility_step_details(self, current_item, previous_item):
         """Displays utility step details in the Module Details table."""
+        self.current_utility_step = None
+        
         if not current_item:
             return
         
@@ -5876,6 +6095,7 @@ class EditTestCaseDialog(QDialog):
         
         # ✅ Get the actual utility step reference (not a copy)
         utility_step = utility_steps[utility_step_index]
+        self.current_utility_step = utility_step
         utility_type = utility_step.get('type')
         
         # Clear the table
@@ -5899,6 +6119,7 @@ class EditTestCaseDialog(QDialog):
             module_name = utility_step.get('module_name')
             if module_name:
                 self.display_utility_module_details(utility_step, module_name)
+        
 
     def get_available_variables_info(self):
         """Returns a formatted string of available variables for tooltips."""
@@ -7541,12 +7762,18 @@ class EditTestCaseDialog(QDialog):
     def get_updated_steps(self):
         """Returns the updated list of test case steps."""
         return self.added_steps         
-        
+            
     def display_module_details(self, current_item, previous_item):
         """
         Displays the details of the selected module on the right side in a table.
         UPDATED: Now handles 'capture_screenshot' steps by showing the previous module's labels with highlight checkboxes.
         """
+        # ✅ CRITICAL FIX: Detect if we're switching from utility to main step
+        was_editing_utility = hasattr(self, 'current_utility_step') and self.current_utility_step is not None
+        
+        # ✅ Clear utility step reference when clicking on a main step
+        self.current_utility_step = None
+        
         # Auto-save previous item if it exists
         if previous_item:
             # Remove bold from previous item
@@ -7576,6 +7803,16 @@ class EditTestCaseDialog(QDialog):
                     label.setFont(font)
             
             current_step_index = self.steps_list_widget.row(current_item)
+            
+            # ✅ CRITICAL FIX: If we were editing a utility step and clicked on the same main step,
+            # show a notification and force refresh
+            if was_editing_utility and previous_item and self.steps_list_widget.row(previous_item) == current_step_index:
+                QMessageBox.information(
+                    self,
+                    "Main Step Selected",
+                    "Now showing main step fields.\n\nThe utility step fields have been saved (if you clicked Save Step Fields)."
+                )
+            
             step_data = self.added_steps[current_step_index]
             step_type = step_data.get('type')
             
@@ -7759,6 +7996,7 @@ class EditTestCaseDialog(QDialog):
         """
         Saves the current state with a success message.
         Called when the 'Save Step Fields' button is clicked.
+        ✅ UPDATED: Adds confirmation when saving to main step if utility steps exist.
         """
         current_item = self.steps_list_widget.currentItem()
         if not current_item:
@@ -7766,6 +8004,41 @@ class EditTestCaseDialog(QDialog):
             return
         
         step_index = self.steps_list_widget.row(current_item)
+        
+        # ✅ NEW: Check if we're about to save to a main step
+        current_utility_item = self.utility_steps_list_widget.currentItem()
+        is_editing_utility = (
+            hasattr(self, 'current_utility_step') and 
+            self.current_utility_step is not None and
+            current_utility_item is not None
+        )
+        
+        # ✅ NEW: If NOT editing utility but utility steps exist, show confirmation
+        if not is_editing_utility:
+            # Check if this main step has utility steps
+            if step_index >= 0 and step_index < len(self.added_steps):
+                step_data = self.added_steps[step_index]
+                utility_steps = step_data.get('utility_steps', [])
+                
+                if len(utility_steps) > 0:
+                    # Show confirmation dialog
+                    reply = QMessageBox.question(
+                        self,
+                        "Save to Main Step?",
+                        f"⚠️ Warning: You are about to save data to the MAIN step (Step {step_index + 1}).\n\n"
+                        f"This step has {len(utility_steps)} utility step(s).\n\n"
+                        f"Are you sure you want to save to the MAIN step?\n\n"
+                        f"(If you intended to save to a utility step, please select it first from the Utility Steps list on the left.)",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No  # Default to No for safety
+                    )
+                    
+                    if reply != QMessageBox.StandardButton.Yes:
+                        # User cancelled - don't save
+                        self.statusBar().showMessage("Save cancelled.", 3000)
+                        return
+        
+        # Proceed with save
         self.save_table_data_to_step(step_index, show_message=True)
 
     def on_action_type_changed(self):
@@ -7797,14 +8070,16 @@ class EditTestCaseDialog(QDialog):
         step_data = self.added_steps[step_index]
         step_type = step_data.get('type')
         
-        # ✅ CRITICAL CHECK: Only process utility steps if we're actually viewing one
-        # Check if the utility steps list has focus/selection
-        has_utility_selection = (
-            hasattr(self, 'utility_steps_list_widget') and 
-            self.utility_steps_list_widget.currentItem() is not None
+        # ✅ FIXED: Only process utility steps if current_utility_step is explicitly set
+        # and matches the currently selected utility item
+        current_utility_item = self.utility_steps_list_widget.currentItem()
+        is_editing_utility = (
+            hasattr(self, 'current_utility_step') and 
+            self.current_utility_step is not None and
+            current_utility_item is not None
         )
         
-        if has_utility_selection and hasattr(self, 'current_utility_step') and self.current_utility_step:
+        if is_editing_utility:
             # We're editing a UTILITY step
             utility_type = self.current_utility_step.get('type')
             
@@ -7869,7 +8144,6 @@ class EditTestCaseDialog(QDialog):
                 if show_message:
                     QMessageBox.information(self, "Saved", "Utility module validation fields saved successfully.")
 
-            #self.current_utility_step = None
             return
         
         # ✅ Below here is for MAIN STEPS only - clear utility reference
@@ -13071,65 +13345,95 @@ class PCOMMMainFrame(QMainWindow):
             with open(self.test_case_file, 'r') as f:
                 self.test_cases = json.load(f)
             self.update_test_case_tree()
-            
+                
     def import_test_cases(self):
         """
-        Allows the user to import test cases from a JSON file.
+        Allows the user to import test cases from multiple JSON files.
         The imported test cases are added to the existing ones.
         """
         options = QFileDialog.Option.ReadOnly
-        file_path, _ = QFileDialog.getOpenFileName(self, "Import Test Cases", "",
-                                                   "JSON Files (*.json);;All Files (*)", options=options)
+        file_paths, _ = QFileDialog.getOpenFileNames(  # ✅ CHANGED: getOpenFileNames (plural)
+            self, 
+            "Import Test Cases", 
+            "",
+            "JSON Files (*.json);;All Files (*)", 
+            options=options
+        )
         
-        if not file_path:
+        if not file_paths:  # ✅ CHANGED: Check if list is empty
             return
-
-        try:
-            with open(file_path, 'r') as f:
-                imported_data = json.load(f)
-
-            imported_count = 0
-            
-            # Case 1: The file contains a single test case (saved from 'Save Test Case' button)
-            if isinstance(imported_data, dict) and 'name' in imported_data and 'steps' in imported_data:
-                test_case_name = imported_data['name']
-                # Add a unique suffix if a test case with the same name already exists
-                if test_case_name in self.test_cases:
-                    suffix = 1
-                    while f"{test_case_name} ({suffix})" in self.test_cases:
-                        suffix += 1
-                    new_name = f"{test_case_name} ({suffix})"
-                    imported_data['name'] = new_name
-                    test_case_name = new_name
+        
+        total_imported = 0
+        failed_imports = []
+        
+        for file_path in file_paths:  # ✅ NEW: Loop through all selected files
+            try:
+                with open(file_path, 'r') as f:
+                    imported_data = json.load(f)
                 
-                self.test_cases[test_case_name] = imported_data
-                imported_count = 1
-            
-            # Case 2: The file contains a dictionary of multiple test cases (saved as a library)
-            elif isinstance(imported_data, dict) and all(isinstance(v, dict) and 'name' in v and 'steps' in v for v in imported_data.values()):
-                for test_case_name, test_case_data in imported_data.items():
+                imported_count = 0
+                
+                # Case 1: The file contains a single test case (saved from 'Save Test Case' button)
+                if isinstance(imported_data, dict) and 'name' in imported_data and 'steps' in imported_data:
+                    test_case_name = imported_data['name']
+                    # Add a unique suffix if a test case with the same name already exists
                     if test_case_name in self.test_cases:
                         suffix = 1
                         while f"{test_case_name} ({suffix})" in self.test_cases:
                             suffix += 1
                         new_name = f"{test_case_name} ({suffix})"
-                        self.test_cases[new_name] = test_case_data
-                    else:
-                        self.test_cases[test_case_name] = test_case_data
-                    imported_count += 1
+                        imported_data['name'] = new_name
+                        test_case_name = new_name
+                    
+                    self.test_cases[test_case_name] = imported_data
+                    imported_count = 1
+                
+                # Case 2: The file contains a dictionary of multiple test cases (saved as a library)
+                elif isinstance(imported_data, dict) and all(isinstance(v, dict) and 'name' in v and 'steps' in v for v in imported_data.values()):
+                    for test_case_name, test_case_data in imported_data.items():
+                        if test_case_name in self.test_cases:
+                            suffix = 1
+                            while f"{test_case_name} ({suffix})" in self.test_cases:
+                                suffix += 1
+                            new_name = f"{test_case_name} ({suffix})"
+                            self.test_cases[new_name] = test_case_data
+                        else:
+                            self.test_cases[test_case_name] = test_case_data
+                        imported_count += 1
+                
+                total_imported += imported_count
+                
+                # ✅ NEW: Track files with no valid test cases
+                if imported_count == 0:
+                    import os
+                    failed_imports.append(f"{os.path.basename(file_path)}: No valid test case data found")
             
-            if imported_count > 0:
-                self.save_test_cases_to_file()
-                self.update_test_case_tree()
-                QMessageBox.information(self, "Import Successful", 
-                                        f"Successfully imported {imported_count} test case(s).")
+            except json.JSONDecodeError:
+                import os
+                failed_imports.append(f"{os.path.basename(file_path)}: Invalid JSON format")
+            except Exception as e:
+                import os
+                failed_imports.append(f"{os.path.basename(file_path)}: {str(e)}")
+        
+        # ✅ NEW: Update UI and show results after processing all files
+        if total_imported > 0:
+            self.save_test_cases_to_file()
+            self.update_test_case_tree()
+            
+            # Build success message
+            message = f"Successfully imported {total_imported} test case(s) from {len(file_paths)} file(s)."
+            
+            if failed_imports:
+                message += f"\n\nFailed imports ({len(failed_imports)}):\n" + "\n".join(failed_imports)
+            
+            QMessageBox.information(self, "Import Complete", message)
+        else:
+            # All imports failed
+            if failed_imports:
+                error_msg = "All imports failed:\n\n" + "\n".join(failed_imports)
+                QMessageBox.critical(self, "Import Failed", error_msg)
             else:
-                QMessageBox.warning(self, "Import Failed", "The selected file does not contain valid test case data.")
-
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "Import Error", "Failed to decode JSON from the selected file. Please ensure the file is a valid JSON format.")
-        except Exception as e:
-            QMessageBox.critical(self, "Import Error", f"An unexpected error occurred: {e}")
+                QMessageBox.warning(self, "Import Failed", "No valid test case data found in selected files.")
             
     # Insert this function into your PCOMMMainFrame class or as a standalone helper
     def get_pcomm_session(window_title="Session A"):
