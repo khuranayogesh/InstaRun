@@ -6103,6 +6103,27 @@ class EditTestCaseDialog(QDialog):
         save_button.clicked.connect(self.save_test_case)
         close_button_layout.addWidget(save_button)
         
+        # ✅ NEW: Add Download button
+        download_button = QPushButton("📥 Download")
+        download_button.setFixedWidth(120)
+        download_button.setStyleSheet('''
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QPushButton:pressed {
+                background-color: #1d4ed8;
+            }
+        ''')
+        download_button.clicked.connect(self.download_test_case_as_docx)
+        close_button_layout.addWidget(download_button)        
+        
         close_button = QPushButton("Close")
         close_button.setFixedWidth(60)
         close_button.clicked.connect(self.accept)
@@ -10557,6 +10578,389 @@ class EditTestCaseDialog(QDialog):
             3000
         )    
     
+    def download_test_case_as_docx(self):
+        """
+        Downloads the current test case as a formatted DOCX document.
+        Only includes meaningful steps (excludes Wait, Capture Screenshot, etc.)
+        """
+        from docx import Document
+        from docx.shared import Pt, Inches, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from datetime import datetime
+        import os
+        
+        # Get test case details
+        test_case_name = self.test_case_name_input.text().strip()
+        test_case_description = self.test_case_description_input.text().strip()
+        test_case_assumptions = self.test_case_assumptions_input.toPlainText().strip()
+        
+        if not test_case_name:
+            QMessageBox.warning(self, "Missing Name", "Please enter a test case name before downloading.")
+            return
+        
+        # Ask user where to save
+        default_filename = f"{test_case_name.replace(' ', '_')}_TestCase.docx"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Test Case Document",
+            default_filename,
+            "Word Documents (*.docx)"
+        )
+        
+        if not file_path:
+            return  # User cancelled
+        
+        try:
+            # Create document
+            doc = Document()
+            
+            # Add title
+            title = doc.add_heading(test_case_name, level=1)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title_run = title.runs[0]
+            title_run.font.color.rgb = RGBColor(107, 44, 145)  # Purple color
+            
+            # Add metadata section
+            doc.add_paragraph()
+            metadata_table = doc.add_table(rows=3, cols=2)
+            metadata_table.style = 'Light Grid Accent 1'
+            
+            # Test Case ID
+            metadata_table.rows[0].cells[0].text = "Test Case ID:"
+            metadata_table.rows[0].cells[1].text = test_case_name
+            
+            # Description
+            metadata_table.rows[1].cells[0].text = "Description:"
+            metadata_table.rows[1].cells[1].text = test_case_description or "N/A"
+            
+            # Date Generated
+            metadata_table.rows[2].cells[0].text = "Generated On:"
+            metadata_table.rows[2].cells[1].text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Make first column bold
+            for row in metadata_table.rows:
+                row.cells[0].paragraphs[0].runs[0].font.bold = True
+            
+            # Add assumptions section (always)
+            doc.add_paragraph()
+            doc.add_heading("Assumptions:", level=2)
+            if test_case_assumptions:
+                doc.add_paragraph(test_case_assumptions)
+            else:
+                doc.add_paragraph("NA - Not Applicable")
+            
+            # Add prerequisites section (always)
+            doc.add_paragraph()
+            doc.add_heading("Prerequisites:", level=2)
+            prerequisites = self.get_prerequisites()
+            if prerequisites:
+                for prereq in prerequisites:
+                    prereq_para = doc.add_paragraph(prereq, style='List Bullet')
+            else:
+                doc.add_paragraph("NA - Not Applicable")
+            
+            # Add test steps section
+            doc.add_paragraph()
+            doc.add_heading("Test Steps:", level=2)
+            
+            step_counter = 1  # Counter for meaningful steps only
+            
+            # Process each main step
+            for main_step_idx, step in enumerate(self.added_steps):
+                step_type = step.get('type')
+                
+                # Skip non-meaningful steps
+                if step_type in ['wait', 'capture_screenshot', 'capture_screen_text']:
+                    continue
+                
+                # Process meaningful main steps
+                if step_type == 'module_import':
+                    # Only add if module has fields with values
+                    fields = step.get('fields', [])
+                    fields_with_values = [f for f in fields if f.get('value', '').strip()]
+                    if fields_with_values:
+                        self._add_module_step_to_doc(doc, step, step_counter)
+                        step_counter += 1
+                
+                elif step_type == 'special_key':
+                    # Skip End Key
+                    key_value = step.get('key_value', '')
+                    if key_value not in ['End Key', 'END KEY', 'End key', 'end key']:
+                        self._add_special_key_to_doc(doc, step, step_counter)
+                        step_counter += 1
+                
+                elif step_type == 'random_input':
+                    # Skip if it's an End Key random input
+                    value = step.get('value', '').strip()
+                    is_special_key = step.get('is_special_key', False)
+                    if not (is_special_key and value in ['End Key', 'END KEY', 'End key', 'end key']):
+                        self._add_random_input_to_doc(doc, step, step_counter)
+                        step_counter += 1
+                
+                elif step_type == 'break':
+                    self._add_break_step_to_doc(doc, step, step_counter)
+                    step_counter += 1
+                
+                # Process utility steps
+                utility_steps = step.get('utility_steps', [])
+                for utility_step in utility_steps:
+                    utility_type = utility_step.get('type')
+                    
+                    # Skip non-meaningful utility steps
+                    if utility_type in ['wait', 'capture_screenshot', 'capture_screen_text']:
+                        continue
+                    
+                    if utility_type == 'module_import':
+                        # Only add if module has fields with values
+                        fields = utility_step.get('fields', [])
+                        fields_with_values = [f for f in fields if f.get('value', '').strip()]
+                        if fields_with_values:
+                            self._add_module_step_to_doc(doc, utility_step, step_counter)
+                            step_counter += 1
+                    
+                    elif utility_type == 'special_key':
+                        # Skip End Key
+                        key_value = utility_step.get('key_value', '')
+                        if key_value not in ['End Key', 'END KEY', 'End key', 'end key']:
+                            self._add_special_key_to_doc(doc, utility_step, step_counter)
+                            step_counter += 1
+                    
+                    elif utility_type == 'random_input':
+                        # Skip if it's an End Key random input
+                        value = utility_step.get('value', '').strip()
+                        is_special_key = utility_step.get('is_special_key', False)
+                        if not (is_special_key and value in ['End Key', 'END KEY', 'End key', 'end key']):
+                            self._add_random_input_to_doc(doc, utility_step, step_counter)
+                            step_counter += 1
+            
+            # Save document
+            doc.save(file_path)
+            
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Test case document saved successfully!\n\n{file_path}"
+            )
+            
+            # Ask if user wants to open the file
+            reply = QMessageBox.question(
+                self,
+                "Open Document",
+                "Would you like to open the document now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                os.startfile(file_path)
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save test case document:\n\n{str(e)}"
+            )
+
+    def _add_module_step_to_doc(self, doc, step, step_number):
+        """Helper method to add a module import step to the document."""
+        from docx.shared import Pt, RGBColor
+        
+        module_name = step.get('module_name', 'Unknown Module')
+        fields = step.get('fields', [])
+        
+        # Determine action type
+        action_type = 'Input'
+        if fields:
+            action_type = fields[0].get('action_type', 'Input')
+        
+        # Filter fields that have values
+        fields_with_values = [f for f in fields if f.get('value', '').strip()]
+        
+        # Skip if no fields with values (this should not happen as we check before calling)
+        if not fields_with_values:
+            return
+        
+        # Add step heading
+        step_heading = doc.add_paragraph()
+        step_heading.add_run(f"Step {step_number}: ").bold = True
+        
+        if action_type == 'Input':
+            step_heading.add_run(f"Input - {module_name}")
+        else:
+            step_heading.add_run(f"Validate - {module_name}")
+        
+        step_heading_run = step_heading.runs[0]
+        step_heading_run.font.color.rgb = RGBColor(107, 44, 145)
+        step_heading_run.font.size = Pt(12)
+        
+        # Reduce spacing after paragraph
+        step_heading.paragraph_format.space_after = Pt(3)
+        
+        # Create table for fields with values
+        table = doc.add_table(rows=len(fields_with_values) + 1, cols=2)
+        table.style = 'Light List Accent 1'
+        
+        # Add headers
+        header_cells = table.rows[0].cells
+        header_cells[0].text = "Field Name"
+        header_cells[1].text = "Value"
+        
+        # Make headers bold
+        for cell in header_cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.bold = True
+        
+        # Add field data with different color for Validate steps
+        for idx, field in enumerate(fields_with_values, start=1):
+            row_cells = table.rows[idx].cells
+            row_cells[0].text = field.get('field_name', 'N/A')
+            row_cells[1].text = field.get('value', '')
+            
+            # Apply light orange background for Validate steps
+            if action_type == 'Validate':
+                from docx.oxml.ns import qn
+                from docx.oxml import OxmlElement
+                
+                for cell in row_cells:
+                    # Add light orange/yellow background to validation rows
+                    tc = cell._element
+                    tcPr = tc.get_or_add_tcPr()
+                    shd = OxmlElement('w:shd')
+                    shd.set(qn('w:fill'), 'FFF4E6')  # Light orange background
+                    tcPr.append(shd)
+        
+        # Reduce spacing after table
+        last_para = doc.paragraphs[-1]
+        last_para.paragraph_format.space_after = Pt(6)
+
+    def _add_special_key_to_doc(self, doc, step, step_number):
+        """Helper method to add a special key step to the document."""
+        from docx.shared import Pt, RGBColor
+        
+        key_value = step.get('key_value', 'Unknown Key')
+        
+        # Add step heading
+        step_heading = doc.add_paragraph()
+        step_heading.add_run(f"Step {step_number}: ").bold = True
+        
+        # Map special keys to meaningful descriptions
+        if key_value == "Enter Key":
+            step_heading.add_run("Press Enter")
+        elif key_value == "Clear Key":
+            step_heading.add_run("Clear the screen")
+        else:
+            # For function keys and other special keys (excluding End Key)
+            step_heading.add_run(f"Press {key_value}")
+        
+        step_heading_run = step_heading.runs[0]
+        step_heading_run.font.color.rgb = RGBColor(107, 44, 145)
+        step_heading_run.font.size = Pt(12)
+        
+        # Reduce spacing after paragraph
+        step_heading.paragraph_format.space_after = Pt(3)
+
+    def _add_random_input_to_doc(self, doc, step, step_number):
+        """Helper method to add a random input step to the document."""
+        from docx.shared import Pt, RGBColor
+        
+        value = step.get('value', '').strip().upper()
+        row = step.get('row', '?')
+        col = step.get('column', '?')
+        is_special_key = step.get('is_special_key', False)
+        
+        # Add step heading
+        step_heading = doc.add_paragraph()
+        step_heading.add_run(f"Step {step_number}: ").bold = True
+        
+        if is_special_key:
+            # If it's a special key, use the special key description
+            if value == "ENTER KEY":
+                step_heading.add_run("Press Enter")
+            elif value == "CLEAR KEY":
+                step_heading.add_run("Clear the screen")
+            else:
+                step_heading.add_run(f"Press {value}")
+        else:
+            # For text values, check if it looks like a screen code
+            if value.startswith('D '):
+                # Remove 'D ' prefix and format as screen opening
+                screen_name = value[2:].strip()
+                step_heading.add_run(f"Open {screen_name} screen")
+            else:
+                # Generic input
+                step_heading.add_run(f"Input '{value}' at position ({row}, {col})")
+        
+        step_heading_run = step_heading.runs[0]
+        step_heading_run.font.color.rgb = RGBColor(107, 44, 145)
+        step_heading_run.font.size = Pt(12)
+        
+        # Reduce spacing after paragraph
+        step_heading.paragraph_format.space_after = Pt(3)
+
+    def _add_break_step_to_doc(self, doc, step, step_number):
+        """Helper method to add a break step to the document."""
+        from docx.shared import Pt, RGBColor
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        import re
+        
+        message_html = step.get('message', '').strip()
+        
+        # Add step heading
+        step_heading = doc.add_paragraph()
+        step_heading.add_run(f"Step {step_number}: ").bold = True
+        step_heading.add_run("Important Instructions/Message")
+        
+        step_heading_run = step_heading.runs[0]
+        step_heading_run.font.color.rgb = RGBColor(107, 44, 145)
+        step_heading_run.font.size = Pt(12)
+        
+        # Reduce spacing after paragraph
+        step_heading.paragraph_format.space_after = Pt(3)
+        
+        # Add the message content
+        if message_html:
+            # Better HTML stripping - remove style tags and their content first
+            # Remove <style>...</style> blocks
+            plain_text = re.sub(r'<style[^>]*>.*?</style>', '', message_html, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Remove all other HTML tags
+            plain_text = re.sub(r'<[^>]+>', '', plain_text)
+            
+            # Replace HTML entities
+            plain_text = plain_text.replace('&nbsp;', ' ')
+            plain_text = plain_text.replace('&lt;', '<')
+            plain_text = plain_text.replace('&gt;', '>')
+            plain_text = plain_text.replace('&amp;', '&')
+            plain_text = plain_text.replace('&quot;', '"')
+            plain_text = plain_text.replace('&#39;', "'")
+            
+            # Clean up extra whitespace and newlines
+            plain_text = ' '.join(plain_text.split())
+            plain_text = plain_text.strip()
+            
+            if plain_text:
+                # Create a bordered box for the message
+                message_para = doc.add_paragraph()
+                message_para.style = 'Intense Quote'
+                message_para.add_run(plain_text)
+                
+                # Add light yellow background to the paragraph
+                pPr = message_para._element.get_or_add_pPr()
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:fill'), 'FFF9E6')  # Light yellow background
+                pPr.append(shd)
+                
+                # Reduce spacing after message
+                message_para.paragraph_format.space_after = Pt(6)
+            else:
+                no_msg_para = doc.add_paragraph("(No message content)", style='List Bullet')
+                no_msg_para.paragraph_format.space_after = Pt(6)
+        else:
+            no_msg_para = doc.add_paragraph("(No message content)", style='List Bullet')
+            no_msg_para.paragraph_format.space_after = Pt(6)
+
+        
 class StepListItemWidget(QFrame):
     def __init__(self, step_name, is_validate_step=False, with_utility_steps=False, parent=None):
         super().__init__(parent)
