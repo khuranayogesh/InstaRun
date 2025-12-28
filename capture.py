@@ -184,6 +184,460 @@ class AddLabelDialog(QDialog):
             "length": int(self.length_input.text() or 0),
         }
         
+# Add this new class after the AddLabelDialog class in your capture.py
+
+class AdditionalInfoConfigDialog(QDialog):
+    """
+    Dialog to configure additional custom fields for test cases.
+    Users can add radio button fields or free text fields.
+    """
+    def __init__(self, parent=None, existing_fields=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Additional Info Fields")
+        self.setMinimumSize(600, 500)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        # Deep copy to avoid modifying original
+        self.custom_fields = copy.deepcopy(existing_fields) if existing_fields else []
+        
+        self.setup_ui()
+        self.populate_fields_list()
+    
+    def setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        
+        # Title
+        title_label = QLabel("Additional Info Fields Configuration")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        main_layout.addWidget(title_label)
+        
+        # Description
+        desc_label = QLabel("Configure custom fields that will be available for each test case.")
+        desc_label.setWordWrap(True)
+        main_layout.addWidget(desc_label)
+        
+        main_layout.addSpacing(15)
+        
+        # Fields list
+        list_label = QLabel("Configured Fields:")
+        list_label.setStyleSheet("font-weight: bold;")
+        main_layout.addWidget(list_label)
+        
+        self.fields_list = QListWidget()
+        self.fields_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        main_layout.addWidget(self.fields_list)
+        
+        # Buttons for managing fields
+        button_layout = QHBoxLayout()
+        
+        self.add_radio_button = QPushButton("Add Radio Button Field")
+        self.add_radio_button.clicked.connect(self.add_radio_field)
+        button_layout.addWidget(self.add_radio_button)
+        
+        self.add_text_button = QPushButton("Add Text Field")
+        self.add_text_button.clicked.connect(self.add_text_field)
+        button_layout.addWidget(self.add_text_button)
+        
+        self.edit_field_button = QPushButton("Edit Selected")
+        self.edit_field_button.clicked.connect(self.edit_field)
+        button_layout.addWidget(self.edit_field_button)
+        
+        self.delete_field_button = QPushButton("Delete Selected")
+        self.delete_field_button.clicked.connect(self.delete_field)
+        button_layout.addWidget(self.delete_field_button)
+        
+        self.move_up_button = QPushButton("↑ Move Up")
+        self.move_up_button.clicked.connect(self.move_field_up)
+        button_layout.addWidget(self.move_up_button)
+        
+        self.move_down_button = QPushButton("↓ Move Down")
+        self.move_down_button.clicked.connect(self.move_field_down)
+        button_layout.addWidget(self.move_down_button)
+        
+        button_layout.addStretch()
+        main_layout.addLayout(button_layout)
+        
+        # Dialog buttons
+        dialog_buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        dialog_buttons.accepted.connect(self.accept)
+        dialog_buttons.rejected.connect(self.reject)
+        main_layout.addWidget(dialog_buttons)
+    
+    def populate_fields_list(self):
+        """Populate the list with existing fields."""
+        self.fields_list.clear()
+        for field in self.custom_fields:
+            display_text = self.format_field_display(field)
+            self.fields_list.addItem(display_text)
+    
+    def format_field_display(self, field):
+        """Format a field for display in the list."""
+        field_type = field.get('type', 'text')
+        field_name = field.get('name', 'Unnamed')
+        
+        if field_type == 'radio':
+            options = field.get('options', [])
+            return f"[Radio] {field_name} - Options: {', '.join(options)}"
+        else:
+            return f"[Text] {field_name}"
+    
+    def add_radio_field(self):
+        """Add a new radio button field."""
+        dialog = RadioFieldDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            field_data = dialog.get_data()
+            self.custom_fields.append(field_data)
+            self.populate_fields_list()
+    
+    def add_text_field(self):
+        """Add a new text field."""
+        dialog = TextFieldDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            field_data = dialog.get_data()
+            self.custom_fields.append(field_data)
+            self.populate_fields_list()
+    
+    def edit_field(self):
+        """Edit the selected field."""
+        current_row = self.fields_list.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select a field to edit.")
+            return
+        
+        field_data = self.custom_fields[current_row]
+        
+        if field_data.get('type') == 'radio':
+            dialog = RadioFieldDialog(self, existing_data=field_data)
+        else:
+            dialog = TextFieldDialog(self, existing_data=field_data)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            updated_data = dialog.get_data()
+            self.custom_fields[current_row] = updated_data
+            self.populate_fields_list()
+            self.fields_list.setCurrentRow(current_row)
+    
+    def delete_field(self):
+        """Delete the selected field."""
+        current_row = self.fields_list.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select a field to delete.")
+            return
+        
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            "Are you sure you want to delete this field?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.custom_fields.pop(current_row)
+            self.populate_fields_list()
+    
+    def move_field_up(self):
+        """Move the selected field up."""
+        current_row = self.fields_list.currentRow()
+        if current_row <= 0:
+            return
+        
+        self.custom_fields[current_row], self.custom_fields[current_row - 1] = \
+            self.custom_fields[current_row - 1], self.custom_fields[current_row]
+        self.populate_fields_list()
+        self.fields_list.setCurrentRow(current_row - 1)
+    
+    def move_field_down(self):
+        """Move the selected field down."""
+        current_row = self.fields_list.currentRow()
+        if current_row < 0 or current_row >= len(self.custom_fields) - 1:
+            return
+        
+        self.custom_fields[current_row], self.custom_fields[current_row + 1] = \
+            self.custom_fields[current_row + 1], self.custom_fields[current_row]
+        self.populate_fields_list()
+        self.fields_list.setCurrentRow(current_row + 1)
+    
+    def get_fields(self):
+        """Return the configured fields."""
+        return self.custom_fields
+
+
+class RadioFieldDialog(QDialog):
+    """Dialog to configure a radio button field."""
+    def __init__(self, parent=None, existing_data=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Radio Button Field")
+        self.setMinimumSize(400, 300)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        self.existing_data = existing_data
+        self.setup_ui()
+        
+        if existing_data:
+            self.populate_existing_data()
+    
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Field name
+        form_layout = QFormLayout()
+        
+        self.field_name_input = QLineEdit()
+        self.field_name_input.setPlaceholderText("e.g., Environment Type")
+        form_layout.addRow("Field Name:", self.field_name_input)
+        
+        layout.addLayout(form_layout)
+        
+        # Options section
+        options_label = QLabel("Radio Button Options:")
+        options_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(options_label)
+        
+        self.options_list = QListWidget()
+        layout.addWidget(self.options_list)
+        
+        # Add/Remove options buttons
+        options_button_layout = QHBoxLayout()
+        
+        self.add_option_button = QPushButton("Add Option")
+        self.add_option_button.clicked.connect(self.add_option)
+        options_button_layout.addWidget(self.add_option_button)
+        
+        self.remove_option_button = QPushButton("Remove Selected")
+        self.remove_option_button.clicked.connect(self.remove_option)
+        options_button_layout.addWidget(self.remove_option_button)
+        
+        options_button_layout.addStretch()
+        layout.addLayout(options_button_layout)
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.validate_and_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def populate_existing_data(self):
+        """Fill the form with existing data."""
+        self.field_name_input.setText(self.existing_data.get('name', ''))
+        
+        options = self.existing_data.get('options', [])
+        for option in options:
+            self.options_list.addItem(option)
+    
+    def add_option(self):
+        """Add a new option to the list."""
+        text, ok = QInputDialog.getText(self, "Add Option", "Enter option text:")
+        if ok and text.strip():
+            self.options_list.addItem(text.strip())
+    
+    def remove_option(self):
+        """Remove the selected option."""
+        current_item = self.options_list.currentItem()
+        if current_item:
+            self.options_list.takeItem(self.options_list.row(current_item))
+    
+    def validate_and_accept(self):
+        """Validate the input before accepting."""
+        if not self.field_name_input.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Please enter a field name.")
+            return
+        
+        if self.options_list.count() < 2:
+            QMessageBox.warning(self, "Validation Error", "Please add at least 2 options.")
+            return
+        
+        self.accept()
+    
+    def get_data(self):
+        """Return the configured field data."""
+        options = []
+        for i in range(self.options_list.count()):
+            options.append(self.options_list.item(i).text())
+        
+        return {
+            'type': 'radio',
+            'name': self.field_name_input.text().strip(),
+            'options': options
+        }
+
+
+class TextFieldDialog(QDialog):
+    """Dialog to configure a text field."""
+    def __init__(self, parent=None, existing_data=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Text Field")
+        self.setFixedSize(400, 150)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        self.existing_data = existing_data
+        self.setup_ui()
+        
+        if existing_data:
+            self.populate_existing_data()
+    
+    def setup_ui(self):
+        layout = QFormLayout(self)
+        
+        self.field_name_input = QLineEdit()
+        self.field_name_input.setPlaceholderText("e.g., Test Environment")
+        layout.addRow("Field Name:", self.field_name_input)
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.validate_and_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def populate_existing_data(self):
+        """Fill the form with existing data."""
+        self.field_name_input.setText(self.existing_data.get('name', ''))
+    
+    def validate_and_accept(self):
+        """Validate the input before accepting."""
+        if not self.field_name_input.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Please enter a field name.")
+            return
+        
+        self.accept()
+    
+    def get_data(self):
+        """Return the configured field data."""
+        return {
+            'type': 'text',
+            'name': self.field_name_input.text().strip()
+        }
+
+
+class AdditionalInfoValuesDialog(QDialog):
+    """
+    Dialog to enter values for the configured additional info fields.
+    """
+    def __init__(self, parent=None, field_definitions=None, existing_values=None):
+        super().__init__(parent)
+        self.setWindowTitle("Additional Test Case Information")
+        self.setMinimumSize(500, 400)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        self.field_definitions = field_definitions or []
+        self.existing_values = existing_values or {}
+        self.field_widgets = {}  # Store widgets for later retrieval
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        
+        # Title
+        title_label = QLabel("Additional Information")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        main_layout.addWidget(title_label)
+        
+        # Description
+        desc_label = QLabel("Please fill in the following additional information for this test case:")
+        desc_label.setWordWrap(True)
+        main_layout.addWidget(desc_label)
+        
+        main_layout.addSpacing(15)
+        
+        # Scroll area for fields
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        fields_widget = QWidget()
+        fields_layout = QVBoxLayout(fields_widget)
+        fields_layout.setSpacing(15)
+        
+        # Create widgets for each field
+        for field in self.field_definitions:
+            field_name = field.get('name', '')
+            field_type = field.get('type', 'text')
+            
+            # Field label
+            label = QLabel(field_name + ":")
+            label.setStyleSheet("font-weight: bold;")
+            fields_layout.addWidget(label)
+            
+            if field_type == 'radio':
+                # Create radio button group
+                radio_group = QWidget()
+                radio_layout = QVBoxLayout(radio_group)
+                radio_layout.setContentsMargins(20, 0, 0, 0)
+                
+                button_group = QButtonGroup(self)
+                options = field.get('options', [])
+                
+                for option in options:
+                    radio_btn = QRadioButton(option)
+                    button_group.addButton(radio_btn)
+                    radio_layout.addWidget(radio_btn)
+                    
+                    # Set existing value if available
+                    if self.existing_values.get(field_name) == option:
+                        radio_btn.setChecked(True)
+                
+                # If no existing value, select first option by default
+                if not self.existing_values.get(field_name) and button_group.buttons():
+                    button_group.buttons()[0].setChecked(True)
+                
+                fields_layout.addWidget(radio_group)
+                self.field_widgets[field_name] = button_group
+                
+            else:  # text field
+                text_input = QLineEdit()
+                text_input.setPlaceholderText(f"Enter {field_name.lower()}...")
+                
+                # Set existing value if available
+                if field_name in self.existing_values:
+                    text_input.setText(self.existing_values[field_name])
+                
+                fields_layout.addWidget(text_input)
+                self.field_widgets[field_name] = text_input
+        
+        if not self.field_definitions:
+            no_fields_label = QLabel("No additional fields configured.")
+            no_fields_label.setStyleSheet("color: #6b7280; font-style: italic;")
+            fields_layout.addWidget(no_fields_label)
+        
+        fields_layout.addStretch()
+        scroll.setWidget(fields_widget)
+        main_layout.addWidget(scroll)
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        main_layout.addWidget(button_box)
+    
+    def get_values(self):
+        """Return the entered values as a dictionary."""
+        values = {}
+        
+        for field_name, widget in self.field_widgets.items():
+            if isinstance(widget, QButtonGroup):
+                # Get selected radio button
+                checked_button = widget.checkedButton()
+                if checked_button:
+                    values[field_name] = checked_button.text()
+            elif isinstance(widget, QLineEdit):
+                # Get text input
+                values[field_name] = widget.text().strip()
+        
+        return values        
+        
 class DocumentConfigDialog(QDialog):
     """
     Dialog to configure the layout of DOCX documents for screenshots.
@@ -5592,6 +6046,9 @@ class EditTestCaseDialog(QDialog):
         self.current_utility_step = None
         self.special_keys = ["Enter Key", "Clear Key", "End Key", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
         self.original_test_case_name = test_case_name
+        
+        self.additional_info_fields = additional_info_fields or []
+        self.additional_info_values = additional_info_values or {}        
 
         # âœ… NEW: Add execution tracking variables
         self.is_executing = False
@@ -5662,6 +6119,26 @@ class EditTestCaseDialog(QDialog):
             }
         """)
         info_layout.addWidget(self.execute_button)
+        
+        additional_info_button = QPushButton("Additional Info")
+        additional_info_button.setFixedSize(QSize(120, 40))
+        additional_info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #6B2C91;
+                border-radius: 6px;
+                background-color: white;
+                padding: 2px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f3e8ff;
+            }
+            QPushButton:pressed {
+                background-color: #e9d5f5;
+            }
+        """)
+        additional_info_button.clicked.connect(self.open_additional_info_dialog)
+        info_layout.addWidget(additional_info_button)        
 
         main_layout.addLayout(info_layout)
 
@@ -6510,7 +6987,9 @@ class EditTestCaseDialog(QDialog):
             'description': self.test_case_description_input.text().strip(),
             'assumptions': self.test_case_assumptions_input.toHtml(),
             'prerequisites': self.get_prerequisites(),
-            'steps': self.added_steps  # ✅ Use current state WITHOUT modifying field values
+            'steps': self.added_steps,
+            'additional_info_fields': self.additional_info_fields,    # ✅ ADD THIS
+            'additional_info_values': self.additional_info_values     # ✅ ADD THIS
         }
         
         # If name changed, remove old entry
@@ -6543,6 +7022,40 @@ class EditTestCaseDialog(QDialog):
         # Refresh the main window's test case list if it exists
         if hasattr(self.main_window, 'populate_test_cases_list'):
             self.main_window.populate_test_cases_list()
+
+    def open_additional_info_dialog(self):
+        """Opens dialog to configure and enter additional info for this test case."""
+        # First, let user configure fields if needed
+        config_dialog = AdditionalInfoConfigDialog(self, self.additional_info_fields)
+        
+        if config_dialog.exec() == QDialog.DialogCode.Accepted:
+            self.additional_info_fields = config_dialog.get_fields()
+            
+            # Now let user enter values for these fields
+            if self.additional_info_fields:
+                values_dialog = AdditionalInfoValuesDialog(
+                    self, 
+                    self.additional_info_fields, 
+                    self.additional_info_values
+                )
+                
+                if values_dialog.exec() == QDialog.DialogCode.Accepted:
+                    self.additional_info_values = values_dialog.get_values()
+                    QMessageBox.information(
+                        self, 
+                        "Additional Info Saved", 
+                        "Additional information has been configured and saved."
+                    )
+            else:
+                QMessageBox.information(
+                    self,
+                    "No Fields Configured",
+                    "No additional fields have been configured yet.\n\n"
+                    "You can add fields like:\n"
+                    "• Radio buttons (e.g., Environment Type: Online/Batch)\n"
+                    "• Text fields (e.g., Test Environment)\n\n"
+                    "Click 'Additional Info' again to configure fields."
+                )
 
     def accept(self):
         """
@@ -6577,7 +7090,9 @@ class EditTestCaseDialog(QDialog):
             'description': self.test_case_description_input.text().strip(),
             'assumptions': self.test_case_assumptions_input.toHtml(),
             'prerequisites': self.get_prerequisites(),
-            'steps': self.added_steps  # ✅ Use current state WITHOUT modifying field values
+            'steps': self.added_steps,
+            'additional_info_fields': self.additional_info_fields,    # ✅ ADD THIS
+            'additional_info_values': self.additional_info_values     # ✅ ADD THIS
         }
         
         # If name changed, remove old entry
@@ -9944,6 +10459,14 @@ class EditTestCaseDialog(QDialog):
         """Returns the list of prerequisite test case names."""
         return list(self.prerequisite_chips.keys())
         
+    def get_additional_info_fields(self):
+        """Returns the configured additional info fields."""
+        return self.additional_info_fields
+
+    def get_additional_info_values(self):
+        """Returns the values entered for additional info fields."""
+        return self.additional_info_values        
+        
     def display_utility_screenshot_details(self, utility_step, reference_module_name):
         """
         Displays the fields of a utility screenshot step in the Module Details table.
@@ -10658,7 +11181,21 @@ class EditTestCaseDialog(QDialog):
                     prereq_para = doc.add_paragraph(prereq, style='List Bullet')
             else:
                 doc.add_paragraph("NA - Not Applicable")
-            
+
+            # ✅ ADD THIS NEW SECTION RIGHT HERE
+            # Add Additional Info fields if they exist
+            if self.additional_info_values:
+                doc.add_paragraph()
+                additional_info_heading = doc.add_heading("Additional Information:", level=2)
+                
+                # Add each field and its value
+                for field_name, field_value in self.additional_info_values.items():
+                    if field_value:  # Only show fields with values
+                        field_para = doc.add_paragraph(style='List Bullet')
+                        field_run = field_para.add_run(f"{field_name}: ")
+                        field_run.bold = True
+                        field_para.add_run(str(field_value))
+
             # Add test steps section
             doc.add_paragraph()
             doc.add_heading("Test Steps:", level=2)
@@ -13105,8 +13642,24 @@ class PCOMMMainFrame(QMainWindow):
             existing_steps = self.test_cases.get(test_case_id, {}).get('steps', [])
             test_case_description = self.test_cases.get(test_case_id, {}).get('description', '')
             test_case_assumptions = self.test_cases.get(test_case_id, {}).get('assumptions', '')
+            prerequisites = self.test_cases.get(test_case_id, {}).get('prerequisites', [])
             
-            dialog = EditTestCaseDialog(existing_steps, self.modules, self, test_case_id, test_case_description, test_case_assumptions)
+            # ✅ ADD THESE TWO LINES
+            additional_info_fields = self.test_cases.get(test_case_id, {}).get('additional_info_fields', [])
+            additional_info_values = self.test_cases.get(test_case_id, {}).get('additional_info_values', {})
+            
+            # ✅ UPDATE THIS LINE - add prerequisites and additional info parameters
+            dialog = EditTestCaseDialog(
+                existing_steps, 
+                self.modules, 
+                self, 
+                test_case_id, 
+                test_case_description, 
+                test_case_assumptions,
+                prerequisites,
+                additional_info_fields,
+                additional_info_values
+            )
             result = dialog.exec()
             
             # ✅ REMOVED: All the manual save logic below - the dialog already handles it in accept()
@@ -13528,7 +14081,7 @@ class PCOMMMainFrame(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             test_case_name = dialog.test_case_name
             test_case_description = dialog.test_case_description
-            test_case_assumptions = dialog.test_case_assumptions  # ✅ NEW
+            test_case_assumptions = dialog.test_case_assumptions
             
             if test_case_name in self.test_cases:
                 QMessageBox.warning(self, "Duplicate Name", f"A test case with the name '{test_case_name}' already exists.")
@@ -13537,8 +14090,10 @@ class PCOMMMainFrame(QMainWindow):
             self.test_cases[test_case_name] = {
                 "steps": [],
                 "description": test_case_description,
-                "assumptions": test_case_assumptions,  # ✅ NEW
-                "prerequisites": []
+                "assumptions": test_case_assumptions,
+                "prerequisites": [],
+                "additional_info_fields": [],      # ✅ ADD THIS
+                "additional_info_values": {}       # ✅ ADD THIS
             }
             self.save_test_cases_to_file()
             self.update_test_case_tree()
