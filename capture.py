@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QTableWidget, QTableWidgetItem, QMessageBox, QStyle, QMenu,
     QFileDialog, QTextEdit, QSizePolicy, QDialog, QLineEdit, QFormLayout, QDialogButtonBox,
     QSpacerItem, QComboBox, QLineEdit, QListWidget, QListWidgetItem,
-    QCheckBox, QRadioButton, QToolButton, QSlider, QStackedWidget, QInputDialog,QSpinBox
+    QCheckBox, QRadioButton, QToolButton, QSlider, QStackedWidget, QInputDialog,QSpinBox, QScrollArea, QButtonGroup
 )
 from PyQt6.QtCore import Qt, QSize, QByteArray, QPoint, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon, QAction, QFont, QFontMetrics, QTextCursor, QIntValidator, QPalette, QColor, QTextTableFormat, QTextFrameFormat, QTextCharFormat, QTextCursor
@@ -221,6 +221,60 @@ class AdditionalInfoConfigDialog(QDialog):
         
         main_layout.addSpacing(15)
         
+        # ✅ NEW: Add Save/Load Default buttons at the top
+        default_buttons_layout = QHBoxLayout()
+        
+        self.save_default_button = QPushButton("💾 Save as Default Template")
+        self.save_default_button.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+            QPushButton:pressed {
+                background-color: #047857;
+            }
+        """)
+        self.save_default_button.clicked.connect(self.save_as_default)
+        default_buttons_layout.addWidget(self.save_default_button)
+        
+        self.load_default_button = QPushButton("📂 Load Default Template")
+        self.load_default_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QPushButton:pressed {
+                background-color: #1d4ed8;
+            }
+        """)
+        self.load_default_button.clicked.connect(self.load_from_default)
+        default_buttons_layout.addWidget(self.load_default_button)
+        
+        default_buttons_layout.addStretch()
+        main_layout.addLayout(default_buttons_layout)
+        
+        main_layout.addSpacing(10)
+        
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        main_layout.addWidget(separator)
+        
+        main_layout.addSpacing(10)
+        
         # Fields list
         list_label = QLabel("Configured Fields:")
         list_label.setStyleSheet("font-weight: bold;")
@@ -365,6 +419,88 @@ class AdditionalInfoConfigDialog(QDialog):
         """Return the configured fields."""
         return self.custom_fields
 
+    def save_as_default(self):
+        """Saves current fields configuration as default template."""
+        if not self.custom_fields:
+            QMessageBox.warning(
+                self,
+                "No Fields",
+                "Please add at least one field before saving as default."
+            )
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Save as Default Template",
+            f"Save current configuration ({len(self.custom_fields)} field(s)) as default template?\n\n"
+            "This will be used as the starting point for all new test cases.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Get main window reference
+            main_window = self.parent()
+            while main_window and not hasattr(main_window, 'save_default_additional_info_fields'):
+                main_window = main_window.parent()
+            
+            if main_window and main_window.save_default_additional_info_fields(self.custom_fields):
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Saved {len(self.custom_fields)} field(s) as default template!\n\n"
+                    "These fields will be available for all new test cases."
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "Failed to save default template."
+                )
+
+    def load_from_default(self):
+        """Loads default fields template."""
+        # Get main window reference
+        main_window = self.parent()
+        while main_window and not hasattr(main_window, 'load_default_additional_info_fields'):
+            main_window = main_window.parent()
+        
+        if not main_window:
+            QMessageBox.warning(self, "Error", "Cannot access main window.")
+            return
+        
+        default_fields = main_window.load_default_additional_info_fields()
+        
+        if not default_fields:
+            QMessageBox.information(
+                self,
+                "No Default Template",
+                "No default template found.\n\n"
+                "Configure fields and click 'Save as Default Template' to create one."
+            )
+            return
+        
+        # Ask for confirmation if current fields exist
+        if self.custom_fields:
+            reply = QMessageBox.question(
+                self,
+                "Load Default Template",
+                f"Load default template ({len(default_fields)} field(s))?\n\n"
+                "This will replace your current configuration.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        
+        # Load the default fields
+        self.custom_fields = copy.deepcopy(default_fields)
+        self.populate_fields_list()
+        
+        QMessageBox.information(
+            self,
+            "Success",
+            f"Loaded {len(default_fields)} field(s) from default template!"
+        )
 
 class RadioFieldDialog(QDialog):
     """Dialog to configure a radio button field."""
@@ -2269,25 +2405,30 @@ class TestExecutionDialog(QDialog):
         item_layout.addWidget(import_button, 0, Qt.AlignmentFlag.AlignVCenter)
         
         # Delete project button
-        delete_button = QPushButton("✕")
+        delete_button = QPushButton()
+
+        # Load the bin.png icon
+        bin_icon = QIcon("bin.png")
+        delete_button.setIcon(bin_icon)
+        delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
         delete_button.setFixedSize(20, 20)
-        delete_font = QFont()
-        delete_font.setBold(True)
-        delete_font.setPointSize(13)
-        delete_button.setFont(delete_font)
+
         delete_button.setStyleSheet("""
             QPushButton {
-                color: #dc2626;
                 border: none;
                 background-color: transparent;
                 padding: 0px;
             }
             QPushButton:hover {
-                color: #991b1b;
                 background-color: #fee2e2;
                 border-radius: 3px;
             }
+            QPushButton:pressed {
+                background-color: #fecaca;
+            }
         """)
+        delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
         delete_button.clicked.connect(lambda: self.delete_project(project_name))
         item_layout.addWidget(delete_button, 0, Qt.AlignmentFlag.AlignVCenter)
         
@@ -2553,16 +2694,30 @@ class TestExecutionDialog(QDialog):
         item_layout.addWidget(refresh_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Delete button
-        delete_button = QPushButton("✕")
+        delete_button = QPushButton()
+
+        # Load the bin.png icon
+        bin_icon = QIcon("bin.png")
+        delete_button.setIcon(bin_icon)
+        delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
         delete_button.setFixedSize(20, 20)
-        delete_font = QFont()
-        delete_font.setBold(True)
-        delete_font.setPointSize(13)
-        delete_button.setFont(delete_font)
+
         delete_button.setStyleSheet("""
-            QPushButton { color: #dc2626; border: none; background-color: transparent; padding: 0px; }
-            QPushButton:hover { color: #991b1b; background-color: #fee2e2; border-radius: 3px; }
+            QPushButton { 
+                border: none; 
+                background-color: transparent; 
+                padding: 0px; 
+            }
+            QPushButton:hover { 
+                background-color: #fee2e2; 
+                border-radius: 3px; 
+            }
+            QPushButton:pressed {
+                background-color: #fecaca;
+            }
         """)
+        delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
         delete_button.clicked.connect(lambda: self.delete_single_test(name))
         item_layout.addWidget(delete_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -6023,7 +6178,7 @@ class EditTestCaseDialog(QDialog):
     copied_steps = []
     copied_steps_type = 'main'
     
-    def __init__(self, existing_steps, modules, parent, test_case_name="", test_case_description="", test_case_assumptions=""):
+    def __init__(self, existing_steps, modules, parent, test_case_name="", test_case_description="", test_case_assumptions="", prerequisites=None, additional_info_fields=None, additional_info_values=None):
         super().__init__(parent)  # Pass parent to QDialog
         
         self.main_window = parent  # ✅ Now this works correctly
@@ -6079,6 +6234,28 @@ class EditTestCaseDialog(QDialog):
         info_layout.addWidget(desc_label)
         info_layout.addWidget(self.test_case_description_input)
         
+        # ✅ NEW: Add Additional Info button here (after Description)
+        additional_info_button = QPushButton("Additional Info")
+        additional_info_button.setFixedSize(QSize(120, 30))
+        additional_info_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QPushButton:pressed {
+                background-color: #1d4ed8;
+            }
+        """)
+        additional_info_button.clicked.connect(self.open_additional_info_dialog)
+        info_layout.addWidget(additional_info_button)        
+        
         # âœ… NEW: Add stretch space
         info_layout.addStretch()
         
@@ -6120,35 +6297,19 @@ class EditTestCaseDialog(QDialog):
         """)
         info_layout.addWidget(self.execute_button)
         
-        additional_info_button = QPushButton("Additional Info")
-        additional_info_button.setFixedSize(QSize(120, 40))
-        additional_info_button.setStyleSheet("""
-            QPushButton {
-                border: 2px solid #6B2C91;
-                border-radius: 6px;
-                background-color: white;
-                padding: 2px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #f3e8ff;
-            }
-            QPushButton:pressed {
-                background-color: #e9d5f5;
-            }
-        """)
-        additional_info_button.clicked.connect(self.open_additional_info_dialog)
-        info_layout.addWidget(additional_info_button)        
+    
 
         main_layout.addLayout(info_layout)
 
+        # Assumptions Section - Second Row
+        # Assumptions Section - Second Row
         # Assumptions Section - Second Row
         assumptions_layout = QHBoxLayout()
 
         assumptions_label = QLabel("Assumptions:")
         assumptions_label.setFixedWidth(105)
         assumptions_label.setAlignment(Qt.AlignmentFlag.AlignTop)
-        
+
         self.test_case_assumptions_input = QTextEdit()
         if test_case_assumptions:
             self.test_case_assumptions_input.setHtml(test_case_assumptions)
@@ -6159,7 +6320,12 @@ class EditTestCaseDialog(QDialog):
 
         assumptions_layout.addWidget(assumptions_label)
         assumptions_layout.addWidget(self.test_case_assumptions_input)
+
+        # ✅ CHANGED: Add stretch BEFORE the button to push it to the right
         assumptions_layout.addStretch()
+
+        # ✅ REMOVED: Don't add stretch after the button
+        # assumptions_layout.addStretch()  # <-- Remove this line
 
         main_layout.addLayout(assumptions_layout)
 
@@ -6171,7 +6337,7 @@ class EditTestCaseDialog(QDialog):
         # Container widget with underline effect for prerequisites
         self.prerequisites_container = QWidget()
         self.prerequisites_container.setFixedHeight(28)
-        self.prerequisites_container.setFixedWidth(200 + 300)
+        self.prerequisites_container.setFixedWidth(530)
         self.prerequisites_container.setStyleSheet("""
             QWidget {
                 border-bottom: 1px solid #888;
@@ -7025,6 +7191,22 @@ class EditTestCaseDialog(QDialog):
 
     def open_additional_info_dialog(self):
         """Opens dialog to configure and enter additional info for this test case."""
+        
+        # ✅ NEW: If no fields configured yet, offer to load defaults
+        if not self.additional_info_fields and hasattr(self.main_window, 'load_default_additional_info_fields'):
+            default_fields = self.main_window.load_default_additional_info_fields()
+            if default_fields:
+                reply = QMessageBox.question(
+                    self,
+                    "Load Default Fields",
+                    f"No additional fields configured for this test case.\n\n"
+                    f"Load default template ({len(default_fields)} field(s))?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.additional_info_fields = copy.deepcopy(default_fields)
+        
         # First, let user configure fields if needed
         config_dialog = AdditionalInfoConfigDialog(self, self.additional_info_fields)
         
@@ -7258,25 +7440,30 @@ class EditTestCaseDialog(QDialog):
                 item_layout.addWidget(refresh_button)
 
             # Delete button
-            delete_button = QPushButton("✕")
+            delete_button = QPushButton()
+
+            # Load the bin.png icon
+            bin_icon = QIcon("bin.png")
+            delete_button.setIcon(bin_icon)
+            delete_button.setIconSize(QSize(14, 14))  # Icon size slightly smaller than button
+
             delete_button.setFixedSize(18, 18)
-            delete_font = QFont()
-            delete_font.setBold(True)
-            delete_font.setPointSize(12)
-            delete_button.setFont(delete_font)
+
             delete_button.setStyleSheet("""
                 QPushButton {
-                    color: #dc2626;
                     border: none;
                     background-color: transparent;
                     padding: 0px;
                 }
                 QPushButton:hover {
-                    color: #991b1b;
                     background-color: #fee2e2;
                     border-radius: 3px;
                 }
+                QPushButton:pressed {
+                    background-color: #fecaca;
+                }
             """)
+            delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
             delete_button.setToolTip(f"Delete utility step {main_step_num}.{sub_idx}")
             delete_button.clicked.connect(
                 lambda checked, ms=current_step_index, us=sub_idx-1: self.delete_utility_step(ms, us)
@@ -8073,25 +8260,30 @@ class EditTestCaseDialog(QDialog):
                 item_layout.addWidget(refresh_button)
             
             # Delete button
-            delete_button = QPushButton("✕")
+            delete_button = QPushButton()
+
+            # Load the bin.png icon
+            bin_icon = QIcon("bin.png")
+            delete_button.setIcon(bin_icon)
+            delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
             delete_button.setFixedSize(20, 20)
-            delete_font = QFont()
-            delete_font.setBold(True)
-            delete_font.setPointSize(13)
-            delete_button.setFont(delete_font)
+
             delete_button.setStyleSheet("""
                 QPushButton {
-                    color: #dc2626;
                     border: none;
                     background-color: transparent;
                     padding: 0px;
                 }
                 QPushButton:hover {
-                    color: #991b1b;
                     background-color: #fee2e2;
                     border-radius: 3px;
                 }
+                QPushButton:pressed {
+                    background-color: #fecaca;
+                }
             """)
+            delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
             delete_button.setToolTip(f"Delete '{step_name}'")
             delete_button.clicked.connect(lambda checked, idx=i: self.delete_step_by_index(idx))
             item_layout.addWidget(delete_button)
@@ -10749,25 +10941,30 @@ class EditTestCaseDialog(QDialog):
                 item_layout.addWidget(refresh_button)
             
             # Delete button
-            delete_button = QPushButton("✕")
+            delete_button = QPushButton()
+
+            # Load the bin.png icon
+            bin_icon = QIcon("bin.png")
+            delete_button.setIcon(bin_icon)
+            delete_button.setIconSize(QSize(14, 14))  # Icon size slightly smaller than button
+
             delete_button.setFixedSize(18, 18)
-            delete_font = QFont()
-            delete_font.setBold(True)
-            delete_font.setPointSize(12)
-            delete_button.setFont(delete_font)
+
             delete_button.setStyleSheet("""
                 QPushButton {
-                    color: #dc2626;
                     border: none;
                     background-color: transparent;
                     padding: 0px;
                 }
                 QPushButton:hover {
-                    color: #991b1b;
                     background-color: #fee2e2;
                     border-radius: 3px;
                 }
+                QPushButton:pressed {
+                    background-color: #fecaca;
+                }
             """)
+            delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
             delete_button.setToolTip(f"Delete utility step {main_step_num}.{sub_idx}")
             delete_button.clicked.connect(
                 lambda checked, ms=main_step_index, us=sub_idx-1: self.delete_utility_step(ms, us)
@@ -11144,25 +11341,45 @@ class EditTestCaseDialog(QDialog):
             title_run.font.color.rgb = RGBColor(107, 44, 145)  # Purple color
             
             # Add metadata section
+            # Add metadata section
             doc.add_paragraph()
-            metadata_table = doc.add_table(rows=3, cols=2)
+
+            # ✅ CHANGED: Calculate row count dynamically based on additional info
+            additional_info_count = len(self.additional_info_values) if self.additional_info_values else 0
+            total_rows = 3 + additional_info_count  # Base rows (3) + additional info rows
+
+            metadata_table = doc.add_table(rows=total_rows, cols=2)
             metadata_table.style = 'Light Grid Accent 1'
-            
+
+            row_index = 0
+
             # Test Case ID
-            metadata_table.rows[0].cells[0].text = "Test Case ID:"
-            metadata_table.rows[0].cells[1].text = test_case_name
-            
+            metadata_table.rows[row_index].cells[0].text = "Test Case ID:"
+            metadata_table.rows[row_index].cells[1].text = test_case_name
+            row_index += 1
+
             # Description
-            metadata_table.rows[1].cells[0].text = "Description:"
-            metadata_table.rows[1].cells[1].text = test_case_description or "N/A"
-            
-            # Date Generated
-            metadata_table.rows[2].cells[0].text = "Generated On:"
-            metadata_table.rows[2].cells[1].text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+            metadata_table.rows[row_index].cells[0].text = "Description:"
+            metadata_table.rows[row_index].cells[1].text = test_case_description or "N/A"
+            row_index += 1
+
+            # ✅ NEW: Add Additional Info fields here (between Description and Date)
+            if self.additional_info_values:
+                for field_name, field_value in self.additional_info_values.items():
+                    if field_value:  # Only show fields with values
+                        metadata_table.rows[row_index].cells[0].text = f"{field_name}:"
+                        metadata_table.rows[row_index].cells[1].text = str(field_value)
+                        row_index += 1
+
+            # Date Generated (now at the end)
+            metadata_table.rows[row_index].cells[0].text = "Generated On:"
+            metadata_table.rows[row_index].cells[1].text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             # Make first column bold
             for row in metadata_table.rows:
-                row.cells[0].paragraphs[0].runs[0].font.bold = True
+                for paragraph in row.cells[0].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
             
             # Add assumptions section (always)
             doc.add_paragraph()
@@ -11182,19 +11399,7 @@ class EditTestCaseDialog(QDialog):
             else:
                 doc.add_paragraph("NA - Not Applicable")
 
-            # ✅ ADD THIS NEW SECTION RIGHT HERE
-            # Add Additional Info fields if they exist
-            if self.additional_info_values:
-                doc.add_paragraph()
-                additional_info_heading = doc.add_heading("Additional Information:", level=2)
-                
-                # Add each field and its value
-                for field_name, field_value in self.additional_info_values.items():
-                    if field_value:  # Only show fields with values
-                        field_para = doc.add_paragraph(style='List Bullet')
-                        field_run = field_para.add_run(f"{field_name}: ")
-                        field_run.bold = True
-                        field_para.add_run(str(field_value))
+
 
             # Add test steps section
             doc.add_paragraph()
@@ -11530,33 +11735,31 @@ class StepListItemWidget(QFrame):
             self.utility_container.setStyleSheet("QWidget { margin: 0px; padding: 0px; }")
             self.main_layout.addWidget(self.utility_container, 0, Qt.AlignmentFlag.AlignVCenter)
         
-        self.delete_button = QPushButton("✕")
-        self.delete_button.setFixedSize(20, 20)
+        self.delete_button = QPushButton()
 
-        delete_font = QFont()
-        delete_font.setBold(True)
-        delete_font.setPointSize(14)
-        self.delete_button.setFont(delete_font)
+        # Load the bin.png icon
+        bin_icon = QIcon("bin.png")
+        self.delete_button.setIcon(bin_icon)
+        self.delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
+        self.delete_button.setFixedSize(20, 20)
 
         self.delete_button.setStyleSheet("""
             QPushButton {
-                color: #dc2626;
                 border: none;
                 background-color: transparent;
                 margin-bottom: 0px;
                 padding: 0px;
-                font-weight: bold;
             }
             QPushButton:hover {
-                color: #991b1b;
                 background-color: #fee2e2;
                 border-radius: 3px;
             }
             QPushButton:pressed {
-                color: #7f1d1d;
                 background-color: #fecaca;
             }
         """)
+        self.delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.main_layout.addWidget(self.delete_button, 0, Qt.AlignmentFlag.AlignVCenter)
         
@@ -12209,7 +12412,7 @@ class PCOMMMainFrame(QMainWindow):
         self.setPalette(palette)
         self.setGeometry(100, 100, 1000, 700)
 
-        self.setWindowTitle("InstaRun v1.0")
+        self.setWindowTitle("InstaRun v1.0 - Instant Testing for Continuous Delivery")
         self.set_application_icon()
 
 
@@ -12889,6 +13092,34 @@ class PCOMMMainFrame(QMainWindow):
         self.addToolBar(toolbar)
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
+        # ✅ NEW: Add gradient background to toolbar
+        toolbar.setStyleSheet("""
+            QToolBar {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #C5D9ED,
+                    stop:0.25 #F5C9B0,
+                    stop:0.5 #FFE4BA,
+                    stop:0.75 #F5C9B0,
+                    stop:1 #C5D9ED);
+                spacing: 10px;
+                padding: 5px;
+                border-bottom: 2px solid #aaaaaa;
+            }
+            QToolButton {
+                color: #333333;
+                font-weight: bold;
+                padding: 5px;
+            }
+            QToolButton:hover {
+                background-color: rgba(107, 44, 145, 0.1);
+                border-radius: 4px;
+            }
+            QToolButton:checked {
+                background-color: rgba(107, 44, 145, 0.2);
+                border-radius: 4px;
+            }
+        """)
+
         # Create a new icon from an SVG string for Scan
 
         # Create a new icon from an SVG string for Scan
@@ -13034,6 +13265,26 @@ class PCOMMMainFrame(QMainWindow):
         link_datasource_action = QAction(link_icon, "Link Data\nSource", self)
         link_datasource_action.triggered.connect(self.link_data_source)
         toolbar.addAction(link_datasource_action)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        # Add logo image
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("logo.png")
+
+        # Scale the logo to fit the toolbar height (optional)
+        # Adjust the height value (40) to match your toolbar size
+        if not logo_pixmap.isNull():
+            scaled_pixmap = logo_pixmap.scaledToHeight(80, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+        else:
+            logo_label.setText("Logo not found")  # Fallback text if image not found
+
+        logo_label.setStyleSheet("padding: 5px; margin-right: 10px;")
+        toolbar.addWidget(logo_label)
+
 
     def toggle_masking(self, checked):
         """Toggles text masking on/off."""
@@ -13382,15 +13633,17 @@ class PCOMMMainFrame(QMainWindow):
                 button_layout.setContentsMargins(0, 0, 0, 0)
                 button_layout.setSpacing(5)
 
-                delete_button = QPushButton("✕")
-                delete_button.setFixedSize(18, 18)
-                delete_font = QFont()
-                delete_font.setBold(True)
-                delete_font.setPointSize(12)
-                delete_button.setFont(delete_font)
+                delete_button = QPushButton()
+
+                # Load the bin.png icon
+                bin_icon = QIcon("bin.png")
+                delete_button.setIcon(bin_icon)
+                delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
+                delete_button.setFixedSize(20, 20)
+
                 delete_button.setStyleSheet("""
                     QPushButton {
-                        color: #dc2626;
                         border: none;
                         border-radius: 4px;
                         background-color: transparent;
@@ -14860,44 +15113,49 @@ class PCOMMMainFrame(QMainWindow):
                 button_layout.setContentsMargins(0, 0, 0, 0)
                 button_layout.setSpacing(5)
 
-                save_button = QPushButton("💾")
+                save_button = QPushButton()
+
+                # Load the save.png icon
+                save_icon = QIcon("save.png")
+                save_button.setIcon(save_icon)
+                save_button.setIconSize(QSize(13, 13))  # Icon size slightly smaller than button
+
                 save_button.setFixedSize(17, 17)
+
                 save_button.setStyleSheet("""
                     QPushButton {
                         border: none;
                         background-color: transparent;
-                        font-size: 16px;
                         padding: 2px;
                     }
                     QPushButton:hover {
                         background-color: #e0e0e0;
                         border-radius: 4px;
                     }
+                    QPushButton:pressed {
+                        background-color: #d0d0d0;
+                    }
                 """)
                 save_button.setCursor(Qt.CursorShape.PointingHandCursor)
                 save_button.setToolTip(f"Save '{module_name}' to a file.")
-                # Pass the entire item to the lambda for a more robust connection
                 save_button.clicked.connect(lambda _, item=module_item: self.save_single_module(item.data(0, Qt.ItemDataRole.UserRole)))
                 button_layout.addWidget(save_button)
                 
-                delete_button = QPushButton("✕")
+                # Example for module tree delete button
+                delete_button = QPushButton()
+
+                # Load the bin.png icon
+                bin_icon = QIcon("bin.png")
+                delete_button.setIcon(bin_icon)
+                delete_button.setIconSize(QSize(16, 16))  # Adjust icon size as needed
+
                 delete_button.setFixedSize(20, 20)
-                
-                # ✅ Set font explicitly before stylesheet
-                delete_font = QFont()
-                delete_font.setBold(True)
-                delete_font.setPointSize(14)
-                delete_button.setFont(delete_font)
-                
                 delete_button.setStyleSheet("""
                     QPushButton {
-                        color: #dc2626;
                         border: none;
                         border-radius: 4px;
                         background-color: transparent;
-                        padding: 0px;
-                        margin-left: 4px;
-                        margin-right: 4px;
+                        padding: 2px;
                     }
                     QPushButton:hover {
                         background-color: #fee2e2;
@@ -14907,7 +15165,7 @@ class PCOMMMainFrame(QMainWindow):
                     }
                 """)
                 delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
-                delete_button.setToolTip(f"Delete '{module_name}'.")
+                delete_button.setToolTip(f"Delete '{module_name}'")
                 delete_button.clicked.connect(lambda _, item=module_item: self.delete_module(item))
                 button_layout.addWidget(delete_button)
                 
@@ -14942,18 +15200,24 @@ class PCOMMMainFrame(QMainWindow):
                 button_layout.setContentsMargins(0, 0, 0, 0)
                 button_layout.setSpacing(5)
 
-                save_button = QPushButton("💾")
+                # Load the save.png icon
+                save_icon = QIcon("save.png")
+                save_button = QPushButton()
+                save_button.setIcon(save_icon)
+                save_button.setIconSize(QSize(13, 13))  # Icon size slightly smaller than button
                 save_button.setFixedSize(17, 17)
                 save_button.setStyleSheet("""
                     QPushButton {
                         border: none;
                         background-color: transparent;
-                        font-size: 16px;
                         padding: 2px;
                     }
                     QPushButton:hover {
                         background-color: #e0e0e0;
                         border-radius: 4px;
+                    }
+                    QPushButton:pressed {
+                        background-color: #d0d0d0;
                     }
                 """)
                 save_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -14961,18 +15225,17 @@ class PCOMMMainFrame(QMainWindow):
                 save_button.clicked.connect(lambda _, name=test_case_name: self.save_single_test_case(name))
                 button_layout.addWidget(save_button)
 
-                delete_button = QPushButton("✕")
-                delete_button.setFixedSize(18, 18)  # ✅ Slightly larger for consistency
-                
-                # ✅ Set font explicitly before stylesheet
-                delete_font = QFont()
-                delete_font.setBold(True)
-                delete_font.setPointSize(12)
-                delete_button.setFont(delete_font)
-                
+                delete_button = QPushButton()
+
+                # Load the bin.png icon
+                bin_icon = QIcon("bin.png")
+                delete_button.setIcon(bin_icon)
+                delete_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
+                delete_button.setFixedSize(20, 20)  # ✅ Slightly larger for consistency
+
                 delete_button.setStyleSheet("""
                     QPushButton {
-                        color: #dc2626;
                         border: none;
                         border-radius: 4px;
                         background-color: transparent;
@@ -15273,18 +15536,17 @@ class PCOMMMainFrame(QMainWindow):
                     self.labels_table.setItem(i, 2, col_item)
                     self.labels_table.setItem(i, 3, length_item)
                     
-                    delete_label_button = QPushButton("✕")
-                    delete_label_button.setFixedSize(18, 18)
-                    
-                    # ✅ Set font explicitly before stylesheet
-                    delete_font = QFont()
-                    delete_font.setBold(True)
-                    delete_font.setPointSize(12)
-                    delete_label_button.setFont(delete_font)
+                    delete_label_button = QPushButton()
+
+                    # Load the bin.png icon
+                    bin_icon = QIcon("bin.png")
+                    delete_label_button.setIcon(bin_icon)
+                    delete_label_button.setIconSize(QSize(16, 16))  # Icon size slightly smaller than button
+
+                    delete_label_button.setFixedSize(20, 20)
                     
                     delete_label_button.setStyleSheet("""
                         QPushButton {
-                            color: #dc2626;
                             border: none;
                             border-radius: 3px;
                             background-color: transparent;
@@ -16931,6 +17193,28 @@ class PCOMMMainFrame(QMainWindow):
                     self.save_test_cases_to_file()
                     QMessageBox.information(self, "Success", f"Data source unlinked from '{test_case_name}'.")
 
+    def save_default_additional_info_fields(self, fields):
+        """Saves the additional info fields as default template."""
+        config_file = 'default_additional_info_fields.json'
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(fields, f, indent=4)
+            return True
+        except Exception as e:
+            print(f"Error saving default fields: {e}")
+            return False
+
+    def load_default_additional_info_fields(self):
+        """Loads the default additional info fields template."""
+        config_file = 'default_additional_info_fields.json'
+        try:
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    return json.load(f)
+            return []
+        except Exception as e:
+            print(f"Error loading default fields: {e}")
+            return []
 
 class LinkDataSourceDialog(QDialog):
     """Dialog for linking an Excel data source to a test case."""
